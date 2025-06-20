@@ -298,27 +298,43 @@ _DI_ ThreeBoard<N> ThreeBoard<N>::force_orthogonal_horiz() const {
   ThreeBoard<N> result = *this;
 
   int on_pop_x = __popc(knownOn.state.x) + __popc(knownOn.state.y);
-  if(on_pop_x >= 2) {
+  if(on_pop_x == 2) {
     result.knownOff.state.x = ~knownOn.state.x;
     result.knownOff.state.y = ~knownOn.state.y;
   }
+  if(on_pop_x > 2) { // Blow everything up
+    result.knownOn = BitBoard::solid();
+    result.knownOff = BitBoard::solid();
+  }
 
   int on_pop_z = __popc(knownOn.state.z) + __popc(knownOn.state.w);
-  if(on_pop_z >= 2) {
+  if(on_pop_z == 2) {
     result.knownOff.state.z = ~knownOn.state.z;
     result.knownOff.state.w = ~knownOn.state.w;
   }
+  if(on_pop_z > 2) {
+    result.knownOn = BitBoard::solid();
+    result.knownOff = BitBoard::solid();
+  }
 
   int off_pop_x = __popc(knownOff.state.x) + __popc(knownOff.state.y);
-  if(off_pop_x >= N - 2) {
+  if(off_pop_x == N - 2) {
     result.knownOn.state.x = ~knownOff.state.x;
     result.knownOn.state.y = ~knownOff.state.y;
   }
+  if(off_pop_x > N - 2) {
+    result.knownOn = BitBoard::solid();
+    result.knownOff = BitBoard::solid();
+  }
 
   int off_pop_z = __popc(knownOff.state.z) + __popc(knownOff.state.w);
-  if(off_pop_z >= N - 2) {
+  if(off_pop_z == N - 2) {
     result.knownOn.state.z = ~knownOff.state.z;
     result.knownOn.state.w = ~knownOff.state.w;
+  }
+  if(off_pop_z > N - 2) {
+    result.knownOn = BitBoard::solid();
+    result.knownOff = BitBoard::solid();
   }
 
   const BitBoard bds = ThreeBoard<N>::bounds();
@@ -376,34 +392,47 @@ _DI_ ThreeBoard<N> ThreeBoard<N>::force_orthogonal_vert() const {
   ThreeBoard<N> result = *this;
 
   const BinaryCount on_count_xz = count_vertically(knownOn.state.x) + count_vertically(knownOn.state.z);
-  const uint32_t on_count_xz_geq_2 = on_count_xz.overflow | on_count_xz.bit1;
-  if(on_count_xz_geq_2) {
-    result.knownOff.state.x |= ~knownOn.state.x & on_count_xz_geq_2;
-    result.knownOff.state.z |= ~knownOn.state.z & on_count_xz_geq_2;
-  }
+  const uint32_t on_count_xz_eq_2 = ~on_count_xz.overflow & on_count_xz.bit1 & ~on_count_xz.bit0;
+  result.knownOff.state.x |= ~knownOn.state.x & on_count_xz_eq_2;
+  result.knownOff.state.z |= ~knownOn.state.z & on_count_xz_eq_2;
+
+  // Signal contradiction
+  const uint32_t on_count_xz_gt_2 = on_count_xz.overflow | (on_count_xz.bit1 & on_count_xz.bit0);
+  result.knownOn.state.x |= on_count_xz_gt_2;
+  result.knownOff.state.x |= on_count_xz_gt_2;
 
   const BinaryCount on_count_yw = count_vertically(knownOn.state.y) + count_vertically(knownOn.state.w);
-  const uint32_t on_count_yw_geq_2 = on_count_yw.overflow | on_count_yw.bit1;
-  if(on_count_yw_geq_2) {
-    result.knownOff.state.y |= ~knownOn.state.y & on_count_yw_geq_2;
-    result.knownOff.state.w |= ~knownOn.state.w & on_count_yw_geq_2;
-  }
+  const uint32_t on_count_yw_eq_2 = ~on_count_yw.overflow & on_count_yw.bit1 & ~on_count_yw.bit0;
+  result.knownOff.state.y |= ~knownOn.state.y & on_count_yw_eq_2;
+  result.knownOff.state.w |= ~knownOn.state.w & on_count_yw_eq_2;
+
+  const uint32_t on_count_yw_gt_2 = on_count_yw.overflow | (on_count_yw.bit1 & on_count_yw.bit0);
+  result.knownOn.state.y |= on_count_yw_gt_2;
+  result.knownOff.state.y |= on_count_yw_gt_2;
 
   BitBoard notKnownOff = ~knownOff & ThreeBoard<N>::bounds();
 
   const BinaryCount not_off_count_xz = count_vertically(notKnownOff.state.x) + count_vertically(notKnownOff.state.z);
-  const uint32_t not_off_count_xz_leq_2 = ~not_off_count_xz.overflow & ~(not_off_count_xz.bit0 & not_off_count_xz.bit1);
-  if(not_off_count_xz_leq_2) {
-    result.knownOn.state.x |= ~knownOff.state.x & not_off_count_xz_leq_2;
-    result.knownOn.state.z |= ~knownOff.state.z & not_off_count_xz_leq_2;
-  }
+  const uint32_t not_off_count_xz_eq_2 = ~not_off_count_xz.overflow & not_off_count_xz.bit1 & ~not_off_count_xz.bit0;
+  result.knownOn.state.x |= ~knownOff.state.x & not_off_count_xz_eq_2;
+  result.knownOn.state.z |= ~knownOff.state.z & not_off_count_xz_eq_2;
+
+  // NOTE: this is actually sneaky, because contradiction bits will be
+  // set in the region outside the bounds. Restricting to the bounds
+  // at the end makes it safe. (But we should probably just mask with
+  // (1<<N)...)
+  const uint32_t not_off_count_xz_lt_2 = ~not_off_count_xz.overflow & ~not_off_count_xz.bit1;
+  result.knownOn.state.x |= not_off_count_xz_lt_2;
+  result.knownOff.state.x |= not_off_count_xz_lt_2;
 
   const BinaryCount not_off_count_yw = count_vertically(notKnownOff.state.y) + count_vertically(notKnownOff.state.w);
-  const uint32_t not_off_count_yw_leq_2 = ~not_off_count_yw.overflow & ~(not_off_count_yw.bit0 & not_off_count_yw.bit1);
-  if(not_off_count_yw_leq_2) {
-    result.knownOn.state.y |= ~knownOff.state.y & not_off_count_yw_leq_2;
-    result.knownOn.state.w |= ~knownOff.state.w & not_off_count_yw_leq_2;
-  }
+  const uint32_t not_off_count_yw_eq_2 = ~not_off_count_yw.overflow & not_off_count_yw.bit1 & ~not_off_count_yw.bit0;
+  result.knownOn.state.y |= ~knownOff.state.y & not_off_count_yw_eq_2;
+  result.knownOn.state.w |= ~knownOff.state.w & not_off_count_yw_eq_2;
+
+  const uint32_t not_off_count_yw_lt_2 = ~not_off_count_yw.overflow & ~not_off_count_yw.bit1;
+  result.knownOn.state.y |= not_off_count_yw_lt_2;
+  result.knownOff.state.y |= not_off_count_yw_lt_2;
 
   const BitBoard bds = ThreeBoard<N>::bounds();
   result.knownOn &= bds;
