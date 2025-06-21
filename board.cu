@@ -523,50 +523,94 @@ _DI_ void ThreeBoard<N>::soft_branch<d>(unsigned r) {
   unsigned on_count = __popcll(row_knownOn);
   if(on_count >= 2) return;
 
+  uint64_t row_knownOff;
+  if constexpr(d == Axis::Horizontal) {
+    row_knownOff = knownOff.row(r);
+  } else {
+    row_knownOff = knownOff.column(r);
+  }
+
+  // Collect values that are the same in all branches
+  ThreeBoard<N> common(BitBoard::solid(), BitBoard::solid());
+
+  uint64_t remaining = ~row_knownOn & ~row_knownOff & ((1ULL<<N)-1);
+
   if(on_count == 1) {
-    uint64_t row_knownOff;
-    if constexpr(d == Axis::Horizontal) {
-      row_knownOff = knownOff.row(r);
-    } else {
-      row_knownOff = knownOff.column(r);
-    }
-
-    // Collect values that are the same in all branches
-    ThreeBoard<N> common(BitBoard::solid(), BitBoard::solid());
-
-    uint64_t remaining = ~row_knownOff & ((1ULL<<N)-1);
-
     // Iterate through possible remaining cell
     for (; remaining; remaining &= remaining - 1) {
-      unsigned c = __ffsll(remaining)-1;
+      unsigned c = __ffsll(remaining) - 1;
+
+      cuda::std::pair<unsigned, unsigned> cell;
+      if constexpr (d == Axis::Horizontal)
+        cell = {c, r};
+      else
+        cell = {r, c};
+
       ThreeBoard<N> subBoard = *this;
-      if constexpr(d == Axis::Horizontal) {
-        subBoard.knownOn.set({c, r});
-        subBoard.eliminate_all_lines({c, r});
-      } else {
-        subBoard.knownOn.set({r, c});
-        subBoard.eliminate_all_lines({r, c});
-      }
-
+      subBoard.knownOn.set(cell);
+      subBoard.eliminate_all_lines(cell);
       subBoard.propagate();
-
       if (subBoard.contradiction()) {
-        if constexpr(d == Axis::Horizontal) {
-          knownOff.set({c, r});
-        } else {
-          knownOff.set({r, c});
-        }
+        knownOff.set(cell);
       } else {
         common.knownOn &= subBoard.knownOn;
         common.knownOff &= subBoard.knownOff;
       }
     }
-    knownOn |= common.knownOn;
-    knownOff |= common.knownOff;
   } else {
-    // TODO
+    // This is expensive, we shouldn't do it if there are too many unknown cells
+
+    // Iterate through possible remaining cell
+    for (; remaining; remaining &= remaining - 1) {
+      unsigned c = __ffsll(remaining) - 1;
+
+      cuda::std::pair<unsigned, unsigned> cell;
+      if constexpr (d == Axis::Horizontal)
+        cell = {c, r};
+      else
+        cell = {r, c};
+
+      ThreeBoard<N> subBoard = *this;
+      subBoard.knownOn.set(cell);
+      subBoard.eliminate_all_lines(cell);
+      subBoard.propagate();
+
+      if (subBoard.contradiction()) {
+        knownOff.set(cell);
+      } else {
+        uint64_t row_knownOff2;
+        if constexpr(d == Axis::Horizontal) {
+          row_knownOff2 = subBoard.knownOff.row(r);
+        } else {
+          row_knownOff2 = subBoard.knownOff.column(r);
+        }
+        uint64_t remaining2 = ~row_knownOff2 & ((1ULL << N) - 1);
+        for (; remaining2; remaining2 &= remaining2 - 1) {
+          unsigned c2 = __ffsll(remaining2)-1;
+
+          cuda::std::pair<unsigned, unsigned> cell2;
+          if constexpr (d == Axis::Horizontal)
+            cell2 = {c2, r};
+          else
+            cell2 = {r, c2};
+
+          ThreeBoard<N> subBoard2 = *this;
+          subBoard2.knownOn.set(cell2);
+          subBoard2.propagate();
+
+          if (subBoard2.contradiction()) {
+            subBoard.knownOff.set(cell2);
+          } else {
+            common.knownOn &= subBoard2.knownOn;
+            common.knownOff &= subBoard2.knownOff;
+          }
+        }
+      }
+    }
   }
 
+  knownOn |= common.knownOn;
+  knownOff |= common.knownOff;
 }
 
 template <unsigned N>
