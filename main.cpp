@@ -18,16 +18,31 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
   }
 
   using row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
-  row_t row_knownOn = outcome.knownOn[outcome.ix];
-  row_t row_knownOff = outcome.knownOff[outcome.ix];
-  row_t remaining;
-  remaining = ~row_knownOn & ~row_knownOff & (((row_t)1 << N) - 1);
+  
+  row_t line_knownOn, line_knownOff;
+  if (outcome.axis == Axis::Horizontal) {
+    line_knownOn = outcome.knownOn[outcome.ix];
+    line_knownOff = outcome.knownOff[outcome.ix];
+  } else { // Axis::Vertical
+    line_knownOn = 0;
+    line_knownOff = 0;
+    for (unsigned r = 0; r < N; r++) {
+      if (outcome.knownOn[r] & ((row_t)1 << outcome.ix)) {
+        line_knownOn |= (row_t)1 << r;
+      }
+      if (outcome.knownOff[r] & ((row_t)1 << outcome.ix)) {
+        line_knownOff |= (row_t)1 << r;
+      }
+    }
+  }
+  
+  row_t remaining = ~line_knownOn & ~line_knownOff & (((row_t)1 << N) - 1);
 
   unsigned on_count;
   if constexpr (W == 64) {
-    on_count = __builtin_popcountll(row_knownOn);
+    on_count = __builtin_popcountll(line_knownOn);
   } else {
-    on_count = __builtin_popcount(row_knownOn);
+    on_count = __builtin_popcount(line_knownOn);
   }
 
   if (on_count == 1) {
@@ -35,8 +50,19 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
       row_t lowest_bit = remaining & -remaining;
 
       Problem<W> problem = {outcome.knownOn, outcome.knownOff, {}};
-      problem.knownOn[outcome.ix] |= lowest_bit;
-      problem.seed[outcome.ix] |= lowest_bit;
+      if (outcome.axis == Axis::Horizontal) {
+        problem.knownOn[outcome.ix] |= lowest_bit;
+        problem.seed[outcome.ix] |= lowest_bit;
+      } else { // Axis::Vertical
+        unsigned r;
+        if constexpr (W == 64) {
+          r = __builtin_ctzll(lowest_bit);
+        } else {
+          r = __builtin_ctz(lowest_bit);
+        }
+        problem.knownOn[r] |= (row_t)1 << outcome.ix;
+        problem.seed[r] |= (row_t)1 << outcome.ix;
+      }
       stack.push_back(problem);
     }
   }
@@ -50,8 +76,23 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
         row_t lowest_bit2 = remaining2 & -remaining2;
 
         Problem<W> problem = {outcome.knownOn, outcome.knownOff, {}};
-        problem.knownOn[outcome.ix] |= lowest_bit | lowest_bit2;
-        problem.seed[outcome.ix] |= lowest_bit | lowest_bit2;
+        if (outcome.axis == Axis::Horizontal) {
+          problem.knownOn[outcome.ix] |= lowest_bit | lowest_bit2;
+          problem.seed[outcome.ix] |= lowest_bit | lowest_bit2;
+        } else { // Axis::Vertical
+          unsigned r1, r2;
+          if constexpr (W == 64) {
+            r1 = __builtin_ctzll(lowest_bit);
+            r2 = __builtin_ctzll(lowest_bit2);
+          } else {
+            r1 = __builtin_ctz(lowest_bit);
+            r2 = __builtin_ctz(lowest_bit2);
+          }
+          problem.knownOn[r1] |= (row_t)1 << outcome.ix;
+          problem.knownOn[r2] |= (row_t)1 << outcome.ix;
+          problem.seed[r1] |= (row_t)1 << outcome.ix;
+          problem.seed[r2] |= (row_t)1 << outcome.ix;
+        }
         stack.push_back(problem);
       }
     }
@@ -66,7 +107,7 @@ int solve_main() {
 
   std::vector<Problem<W>> stack = {};
 
-  Outcome<W> blank = {{}, {}, false, true, N*N, 0};
+  Outcome<W> blank = {{}, {}, false, true, N*N, Axis::Horizontal, 0};
   resolve_outcome<W>(blank, stack);
 
   while (!stack.empty()) {

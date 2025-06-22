@@ -3,6 +3,7 @@
 #include <vector>
 #include <utility>
 
+#include "common.hpp"
 
 template<unsigned W>
 struct Problem {
@@ -21,7 +22,7 @@ struct Outcome {
   bool consistent;
   unsigned unknownPop;
   // If consistent but not solved, what to branch on:
-  // Axis axis;
+  Axis axis;
   unsigned ix;
 };
 

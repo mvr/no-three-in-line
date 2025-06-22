@@ -37,6 +37,7 @@ struct ThreeBoard {
 
   _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_row() const;
   _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_col() const;
+  _DI_ cuda::std::pair<Axis, unsigned> most_constrained() const;
 };
 
 // bounds implementation
@@ -544,5 +545,41 @@ ThreeBoard<N, W>::most_constrained_row() const {
 template <unsigned N, unsigned W>
 _DI_ cuda::std::pair<unsigned, unsigned>
 ThreeBoard<N, W>::most_constrained_col() const {
+  unsigned best_col = 0;
+  unsigned min_unknown = std::numeric_limits<unsigned>::max();
 
+  for (unsigned c = 0; c < N; c++) {
+    typename BitBoard<W>::row_t col_knownOn = knownOn.column(c);
+    typename BitBoard<W>::row_t col_knownOff = knownOff.column(c);
+    typename BitBoard<W>::row_t col_known = col_knownOn | col_knownOff;
+
+    unsigned unknown;
+    if constexpr (W == 64) {
+      unknown = N - __popcll(col_known);
+    } else {
+      unknown = N - __popc(col_known);
+    }
+
+    if (col_knownOn == 0) {
+      unknown = unknown * (unknown - 1);
+    }
+
+    if (unknown > 0 && unknown < min_unknown) {
+      best_col = c;
+      min_unknown = unknown;
+    }
+  }
+
+  return {best_col, min_unknown};
+}
+
+template <unsigned N, unsigned W>
+_DI_ cuda::std::pair<Axis, unsigned>
+ThreeBoard<N, W>::most_constrained() const {
+  auto [row, row_unknown] = most_constrained_row();
+  auto [col, col_unknown] = most_constrained_col();
+  if (row_unknown < col_unknown)
+    return {Axis::Horizontal, row};
+  else
+    return {Axis::Vertical, col};
 }

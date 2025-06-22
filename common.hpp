@@ -5,6 +5,11 @@
 
 #include "params.hpp"
 
+enum struct Axis {
+  Vertical,
+  Horizontal,
+};
+
 // an inlined host function:
 #define _HI_ __attribute__((always_inline)) inline
 
@@ -18,10 +23,7 @@
 #define _HD_ _HI_
 #endif
 
-enum struct Axis {
-  Vertical,
-  Horizontal,
-};
+#ifdef __CUDACC__
 
 // Copied from https://gitlab.com/hatsya/open-source/cpads/-/blob/master/include/cpads/core.hpp
 // TODO: just make this a lookup table?
@@ -47,3 +49,5 @@ _DI_ uint32_t binary_gcd(uint32_t x, uint32_t y) {
 
     return (v << k);
 }
+
+#endif
