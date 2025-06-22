@@ -1,46 +1,66 @@
 #include <array>
+#include <vector>
 
 #include "board.cu"
 
+#include "three_kernel.hpp"
+
+#include "params.hpp"
+
 template <unsigned N>
-__global__ void soft_branch_kernel(uint64_t *knownOn, uint64_t *knownOff) {
+__global__ void work_kernel(Problem *problems, Outcome *outcomes) {
+  Problem &problem = problems[blockIdx.x];
+  BitBoard seed = BitBoard::load(problem.seed.data());
+
   ThreeBoard<N> board;
-  board.knownOn = BitBoard::load(knownOn);
-  board.knownOff = BitBoard::load(knownOff);
-  board.eliminate_all_lines();
+  board.knownOn = BitBoard::load(problem.knownOn.data()) | seed;
+  board.knownOff = BitBoard::load(problem.knownOff.data());
+
+  board.eliminate_all_lines(seed);
   board.propagate();
   board.soft_branch_all();
-  board.knownOn.save(knownOn);
-  board.knownOff.save(knownOff);
+
+  Outcome &outcome = outcomes[blockIdx.x];
+  board.knownOn.save(outcome.knownOn.data());
+  board.knownOff.save(outcome.knownOff.data());
+
+  unsigned unknown_pop = board.unknown_pop();
+  bool consistent = board.consistent();
+  auto [row, _] = board.most_constrained_row();
+
+  if(threadIdx.x == 0) {
+    outcome.unknownPop = unknown_pop;
+    outcome.solved = outcome.unknownPop == 0;
+    outcome.consistent = consistent;
+    outcome.ix = row;
+  }
 }
 
 template <unsigned N>
-std::pair<std::array<uint64_t, 64>, std::array<uint64_t, 64>>
-soft_branch(const std::array<uint64_t, 64> &inputKnownOn,
-            const std::array<uint64_t, 64> &inputKnownOff) {
-  uint64_t *d_knownOn;
-  uint64_t *d_knownOff;
+std::vector<Outcome>
+launch_work_kernel(unsigned batch_size,
+                   std::vector<Problem> problems
+                   ) {
+  Problem *d_problems;
+  cudaMalloc((void**) &d_problems, batch_size * sizeof(Problem));
+  cudaMemcpy(d_problems, problems.data(), batch_size * sizeof(Problem), cudaMemcpyHostToDevice);
 
-  cudaMalloc((void**) &d_knownOn, 64 * sizeof(uint64_t));
-  cudaMemcpy(d_knownOn, inputKnownOn.data(), 64 * sizeof(uint64_t), cudaMemcpyHostToDevice);
+  Outcome *d_outcomes;
+  cudaMalloc((void**) &d_outcomes, batch_size * sizeof(Outcome));
 
-  cudaMalloc((void**) &d_knownOff, 64 * sizeof(uint64_t));
-  cudaMemcpy(d_knownOff, inputKnownOff.data(), 64 * sizeof(uint64_t), cudaMemcpyHostToDevice);
+  work_kernel<N><<<batch_size, 32>>>(d_problems, d_outcomes);
 
-  soft_branch_kernel<N><<<1, 32>>>(d_knownOn, d_knownOff);
+  std::vector<Outcome> outcomes;
+  outcomes.resize(batch_size);
+  cudaMemcpy(outcomes.data(), d_outcomes, batch_size * sizeof(Outcome), cudaMemcpyDeviceToHost);
 
-  std::array<uint64_t, 64> resultOn, resultOff;
-  cudaMemcpy(resultOn.data(), d_knownOn, 64*sizeof(uint64_t), cudaMemcpyDeviceToHost);
-  cudaMemcpy(resultOff.data(), d_knownOff, 64*sizeof(uint64_t), cudaMemcpyDeviceToHost);
+  cudaFree(d_problems);
+  cudaFree(d_outcomes);
 
-  cudaFree(d_knownOn);
-  cudaFree(d_knownOff);
+  return outcomes;
 
-  return {resultOn, resultOff};
 }
 
-// Explicitly instantiate the template, or it doesn't get compiled at all.
-template
-std::pair<std::array<uint64_t, 64>, std::array<uint64_t, 64>>
-soft_branch<10>(const std::array<uint64_t, 64> &inputKnownOn,
-                const std::array<uint64_t, 64> &inputKnownOff);
+// Explicitly instantiate the template to the N in params.hpp, or it doesn't get compiled at all.
+template std::vector<Outcome>
+launch_work_kernel<N>(unsigned batch_size, std::vector<Problem> problems);

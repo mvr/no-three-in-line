@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <cuda/std/utility>
 
+#include "params.hpp"
+
 // an inlined host function:
 #define _HI_ __attribute__((always_inline)) inline
 
@@ -249,7 +251,8 @@ struct ThreeBoard {
   static _DI_ BitBoard bounds();
   static _DI_ BitBoard line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
 
-  _DI_ bool contradiction() const;
+  _DI_ bool consistent() const;
+  _DI_ unsigned unknown_pop() const;
 
   _DI_ ThreeBoard<N> force_orthogonal_horiz() const;
   _DI_ ThreeBoard<N> force_orthogonal_vert() const;
@@ -263,8 +266,10 @@ struct ThreeBoard {
 
   template<Axis d>
   _DI_ void soft_branch(unsigned row);
-
   _DI_ void soft_branch_all();
+
+  _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_row() const;
+  _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_col() const;
 };
 
 // Produces a solid NxN square from (0, 0) to (N - 1, N - 1)
@@ -283,8 +288,13 @@ _DI_ BitBoard ThreeBoard<N>::bounds() {
 }
 
 template <unsigned N>
-_DI_ bool ThreeBoard<N>::contradiction() const {
-  return !(knownOn & knownOff).empty();
+_DI_ bool ThreeBoard<N>::consistent() const {
+  return (knownOn & knownOff).empty();
+}
+
+template <unsigned N>
+_DI_ unsigned ThreeBoard<N>::unknown_pop() const {
+  return N*N - (knownOn | knownOff).pop();
 }
 
 // For these,
@@ -500,7 +510,7 @@ _DI_ void ThreeBoard<N>::propagate() {
     prev = *this;
 
     auto forced_orthogonal = force_orthogonal();
-    if(contradiction()) break;
+    if(!consistent()) break;
 
     // Get new knownOns that need their lines removed:
     BitBoard newOns = forced_orthogonal.knownOn & ~prev.knownOn;
@@ -530,10 +540,17 @@ _DI_ void ThreeBoard<N>::soft_branch<d>(unsigned r) {
     row_knownOff = knownOff.column(r);
   }
 
+  unsigned off_count = __popcll(row_knownOff);
+  unsigned unknown_count = N - on_count - off_count;
+  if (on_count == 1 && unknown_count > SOFT_BRANCH_1_THRESHOLD)
+    return;
+  if (on_count == 0 && unknown_count > SOFT_BRANCH_2_THRESHOLD)
+    return;
+
   // Collect values that are the same in all branches
   ThreeBoard<N> common(BitBoard::solid(), BitBoard::solid());
 
-  uint64_t remaining = ~row_knownOn & ~row_knownOff & ((1ULL<<N)-1);
+  uint64_t remaining = ~row_knownOn & ~row_knownOff & ((1ULL << N) - 1);
 
   if(on_count == 1) {
     // Iterate through possible remaining cell
@@ -550,7 +567,7 @@ _DI_ void ThreeBoard<N>::soft_branch<d>(unsigned r) {
       subBoard.knownOn.set(cell);
       subBoard.eliminate_all_lines(cell);
       subBoard.propagate();
-      if (subBoard.contradiction()) {
+      if (!subBoard.consistent()) {
         knownOff.set(cell);
       } else {
         common.knownOn &= subBoard.knownOn;
@@ -575,7 +592,7 @@ _DI_ void ThreeBoard<N>::soft_branch<d>(unsigned r) {
       subBoard.eliminate_all_lines(cell);
       subBoard.propagate();
 
-      if (subBoard.contradiction()) {
+      if (!subBoard.consistent()) {
         knownOff.set(cell);
       } else {
         uint64_t row_knownOff2;
@@ -598,7 +615,7 @@ _DI_ void ThreeBoard<N>::soft_branch<d>(unsigned r) {
           subBoard2.knownOn.set(cell2);
           subBoard2.propagate();
 
-          if (subBoard2.contradiction()) {
+          if (!subBoard2.consistent()) {
             subBoard.knownOff.set(cell2);
           } else {
             common.knownOn &= subBoard2.knownOn;
@@ -621,6 +638,58 @@ _DI_ void ThreeBoard<N>::soft_branch_all() {
   for (int r = 0; r < N; r++) {
     soft_branch<Axis::Vertical>(r);
   }
+}
+
+template <unsigned N>
+_DI_ cuda::std::pair<unsigned, unsigned>
+ThreeBoard<N>::most_constrained_row() const {
+  BitBoard known = knownOn | knownOff;
+  unsigned unknown_xy = N - __popc(known.state.x) + __popc(known.state.y);
+  unsigned unknown_zw = N - __popc(known.state.z) + __popc(known.state.w);
+
+  // Rows with no knownOn have to make two choices
+  if(knownOn.state.x == 0 && knownOn.state.y == 0)
+    unknown_xy = unknown_xy * (unknown_xy - 1);
+
+  if(knownOn.state.z == 0 && knownOn.state.w == 0)
+    unknown_zw = unknown_zw * (unknown_zw - 1);
+
+  // Invalid cases
+  if (threadIdx.x * 2 >= N || unknown_xy == 0)
+    unknown_xy = std::numeric_limits<unsigned>::max();
+  if (threadIdx.x * 2 + 1 >= N || unknown_zw == 0)
+    unknown_zw = std::numeric_limits<unsigned>::max();
+
+  unsigned row;
+  unsigned unknown;
+
+  if (unknown_xy < unknown_zw) {
+    row = threadIdx.x * 2;
+    unknown = unknown_xy;
+  } else {
+    row = threadIdx.x * 2 + 1;
+    unknown = unknown_zw;
+  }
+
+  for (int offset = 16; offset > 0; offset /= 2) {
+    unsigned other_row = __shfl_down_sync(0xffffffff, row, offset);
+    unsigned other_unknown = __shfl_down_sync(0xffffffff, unknown, offset);
+    if (other_unknown < unknown) {
+      row = other_row;
+      unknown = other_unknown;
+    }
+  }
+
+  row = __shfl_sync(0xffffffff, row, 0);
+  unknown = __shfl_sync(0xffffffff, unknown, 0);
+
+  return {row, unknown};
+}
+
+template <unsigned N>
+_DI_ cuda::std::pair<unsigned, unsigned>
+ThreeBoard<N>::most_constrained_col() const {
+
 }
 
 // Last pre-multistream commit:
