@@ -3,16 +3,17 @@
 #include <string>
 #include <sstream>
 
+template<unsigned N>
 std::string generic_to_rle(auto&& cellchar, bool flushtrailing = false) {
   std::stringstream result;
 
   unsigned eol_count = 0;
 
-  for (unsigned j = 0; j < 64; j++) {
+  for (unsigned j = 0; j < N; j++) {
     char last_val = cellchar(0, j);
     unsigned run_count = 0;
 
-    for (unsigned i = 0; i < 64; i++) {
+    for (unsigned i = 0; i < N; i++) {
       char val = cellchar(i, j);
 
       // Flush linefeeds if we find a live cell
@@ -112,37 +113,70 @@ template<typename T> T generic_parse_rle(const std::string &rle, auto&& interpre
   return result;
 }
 
-std::array<uint64_t, 64> parse_rle(const std::string &rle) {
-  return generic_parse_rle<std::array<uint64_t, 64>>(rle, [&](std::array<uint64_t, 64> &result, char ch, int x, int y) -> void {
+template<unsigned W>
+std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> parse_rle(const std::string &rle) {
+  using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
+  return generic_parse_rle<ArrayType>(rle, [&](ArrayType &result, char ch, int x, int y) -> void {
     if (ch == 'o') {
-      result[y] |= (1ULL << x);
+      if constexpr (W == 64) {
+        result[y] |= (1ULL << x);
+      } else {
+        result[y] |= (1U << x);
+      }
     }
   });
 }
 
-std::string to_rle(const std::array<uint64_t, 64> &board) {
-  return generic_to_rle([&](int x, int y) -> char {
-    return (board[y] & (1ULL << x)) ? 'o' : 'b';
+template<unsigned W, unsigned N>
+std::string to_rle(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &board) {
+  return generic_to_rle<N>([&](int x, int y) -> char {
+    if constexpr (W == 64) {
+      return (board[y] & (1ULL << x)) ? 'o' : 'b';
+    } else {
+      return (board[y] & (1U << x)) ? 'o' : 'b';
+    }
   });
 }
 
 
-std::pair<std::array<uint64_t, 64>, std::array<uint64_t, 64>> parse_rle_history(const std::string &rle) {
-  std::array<uint64_t, 64> knownOn = {0};
-  std::array<uint64_t, 64> knownOff = {0};
-  generic_parse_rle<std::array<uint64_t, 64>>(rle, [&](std::array<uint64_t, 64> &result, char ch, int x, int y) -> void {
-    if (ch == 'A')
-      knownOn[y] |= (1ULL << x);
-    if (ch == 'D')
-      knownOff[y] |= (1ULL << x);
+template<unsigned W>
+std::pair<std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>, 
+          std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>> 
+parse_rle_history(const std::string &rle) {
+  using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
+  ArrayType knownOn = {};
+  ArrayType knownOff = {};
+  generic_parse_rle<ArrayType>(rle, [&](ArrayType &result, char ch, int x, int y) -> void {
+    if (ch == 'A') {
+      if constexpr (W == 64) {
+        knownOn[y] |= (1ULL << x);
+      } else {
+        knownOn[y] |= (1U << x);
+      }
+    }
+    if (ch == 'D') {
+      if constexpr (W == 64) {
+        knownOff[y] |= (1ULL << x);
+      } else {
+        knownOff[y] |= (1U << x);
+      }
+    }
   });
   return {knownOn, knownOff};
 }
 
-std::string to_rle_history(const std::array<uint64_t, 64> &knownOn, const std::array<uint64_t, 64> &knownOff) {
-  return generic_to_rle([&](int x, int y) -> char {
-    bool isKnownOn = knownOn[y] & (1ULL << x);
-    bool isKnownOff = knownOff[y] & (1ULL << x);
+template<unsigned W, unsigned N>
+std::string to_rle_history(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &knownOn, 
+                           const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &knownOff) {
+  return generic_to_rle<N>([&](int x, int y) -> char {
+    bool isKnownOn, isKnownOff;
+    if constexpr (W == 64) {
+      isKnownOn = knownOn[y] & (1ULL << x);
+      isKnownOff = knownOff[y] & (1ULL << x);
+    } else {
+      isKnownOn = knownOn[y] & (1U << x);
+      isKnownOff = knownOff[y] & (1U << x);
+    }
     if(isKnownOn && isKnownOff) return 'F';
     if(isKnownOn) return 'A';
     if(isKnownOff) return 'D';
