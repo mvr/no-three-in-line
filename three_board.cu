@@ -328,129 +328,57 @@ _DI_ void ThreeBoard<N, W>::propagate() {
 template <unsigned N, unsigned W>
 template <Axis d>
 _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
-  typename BitBoard<W>::row_t row_knownOn;
-  if constexpr(d == Axis::Horizontal) {
-    row_knownOn = knownOn.row(r);
-  } else {
-    row_knownOn = knownOn.column(r);
-  }
-
-  unsigned on_count;
-  if constexpr (W == 64) {
-    on_count = __popcll(row_knownOn);
-  } else {
-    on_count = __popc(row_knownOn);
-  }
+  auto row_knownOn = (d == Axis::Horizontal) ? knownOn.row(r) : knownOn.column(r);
+  auto row_knownOff = (d == Axis::Horizontal) ? knownOff.row(r) : knownOff.column(r);
+  
+  unsigned on_count = (W == 64) ? __popcll(row_knownOn) : __popc(row_knownOn);
   if(on_count >= 2) return;
 
-  typename BitBoard<W>::row_t row_knownOff;
-  if constexpr(d == Axis::Horizontal) {
-    row_knownOff = knownOff.row(r);
-  } else {
-    row_knownOff = knownOff.column(r);
-  }
-
-  unsigned off_count;
-  if constexpr (W == 64) {
-    off_count = __popcll(row_knownOff);
-  } else {
-    off_count = __popc(row_knownOff);
-  }
+  unsigned off_count = (W == 64) ? __popcll(row_knownOff) : __popc(row_knownOff);
   unsigned unknown_count = N - on_count - off_count;
-  if (on_count == 1 && unknown_count > SOFT_BRANCH_1_THRESHOLD)
-    return;
-  if (on_count == 0 && unknown_count > SOFT_BRANCH_2_THRESHOLD)
-    return;
+  
+  if (on_count == 1 && unknown_count > SOFT_BRANCH_1_THRESHOLD) return;
+  if (on_count == 0 && unknown_count > SOFT_BRANCH_2_THRESHOLD) return;
 
   ThreeBoard<N, W> common(BitBoard<W>::solid(), BitBoard<W>::solid());
+  typename BitBoard<W>::row_t remaining = ~row_knownOn & ~row_knownOff & (((typename BitBoard<W>::row_t)1 << N) - 1);
 
-  typename BitBoard<W>::row_t remaining;
-  remaining = ~row_knownOn & ~row_knownOff & (((typename BitBoard<W>::row_t)1 << N) - 1);
+  auto make_cell = [&](unsigned c) {
+    return (d == Axis::Horizontal) ? cuda::std::pair<unsigned, unsigned>{c, r} : cuda::std::pair<unsigned, unsigned>{r, c};
+  };
 
-  if(on_count == 1) {
-    for (; remaining; remaining &= remaining - 1) {
-      unsigned c;
-      if constexpr (W == 64) {
-        c = __ffsll(remaining) - 1;
-      } else {
-        c = __ffs(remaining) - 1;
-      }
+  auto first_bit = [](typename BitBoard<W>::row_t val) {
+    return ((W == 64) ? __ffsll(val) : __ffs(val)) - 1;
+  };
 
-      cuda::std::pair<unsigned, unsigned> cell;
-      if constexpr (d == Axis::Horizontal)
-        cell = {c, r};
-      else
-        cell = {r, c};
-
-      ThreeBoard<N, W> subBoard = *this;
-      subBoard.knownOn.set(cell);
-      subBoard.eliminate_all_lines(cell);
-      subBoard.propagate();
-      if (!subBoard.consistent()) {
-        knownOff.set(cell);
-      } else {
-        common.knownOn &= subBoard.knownOn;
-        common.knownOff &= subBoard.knownOff;
-      }
+  auto try_placement = [&](auto cell) {
+    ThreeBoard<N, W> subBoard = *this;
+    subBoard.knownOn.set(cell);
+    subBoard.eliminate_all_lines(cell);
+    subBoard.propagate();
+    
+    if (!subBoard.consistent()) {
+      knownOff.set(cell);
+    } else {
+      common.knownOn &= subBoard.knownOn;
+      common.knownOff &= subBoard.knownOff;
     }
-  } else {
-    for (; remaining; remaining &= remaining - 1) {
-      unsigned c;
-      if constexpr (W == 64) {
-        c = __ffsll(remaining) - 1;
-      } else {
-        c = __ffs(remaining) - 1;
-      }
+  };
 
-      cuda::std::pair<unsigned, unsigned> cell;
-      if constexpr (d == Axis::Horizontal)
-        cell = {c, r};
-      else
-        cell = {r, c};
+  for (; remaining; remaining &= remaining - 1) {
+    auto cell = make_cell(first_bit(remaining));
 
+    if(on_count == 1) {
+      try_placement(cell);
+    } else {
       ThreeBoard<N, W> subBoard = *this;
       subBoard.knownOn.set(cell);
-      subBoard.eliminate_all_lines(cell);
-      subBoard.propagate();
 
-      if (!subBoard.consistent()) {
-        knownOff.set(cell);
-      } else {
-        typename BitBoard<W>::row_t row_knownOff2;
-        if constexpr(d == Axis::Horizontal) {
-          row_knownOff2 = subBoard.knownOff.row(r);
-        } else {
-          row_knownOff2 = subBoard.knownOff.column(r);
-        }
+      auto row_knownOff2 = (d == Axis::Horizontal) ? subBoard.knownOff.row(r) : subBoard.knownOff.column(r);
+      typename BitBoard<W>::row_t remaining2 = ~row_knownOff2 & (((typename BitBoard<W>::row_t)1 << N) - 1);
 
-        typename BitBoard<W>::row_t remaining2;
-        remaining2 = ~row_knownOff2 & (((typename BitBoard<W>::row_t)1 << N) - 1);
-
-        for (; remaining2; remaining2 &= remaining2 - 1) {
-          unsigned c2;
-          if constexpr (W == 64) {
-            c2 = __ffsll(remaining2) - 1;
-          } else {
-            c2 = __ffs(remaining2) - 1;
-          }
-
-          cuda::std::pair<unsigned, unsigned> cell2;
-          if constexpr (d == Axis::Horizontal)
-            cell2 = {c2, r};
-          else
-            cell2 = {r, c2};
-
-          ThreeBoard<N, W> subBoard2 = *this;
-          subBoard2.knownOn.set(cell2);
-          subBoard2.propagate();
-
-          if (!subBoard2.consistent()) {
-            subBoard.knownOff.set(cell2);
-          } else {
-            common.knownOn &= subBoard2.knownOn;
-            common.knownOff &= subBoard2.knownOff;
-          }
-        }
+      for (; remaining2; remaining2 &= remaining2 - 1) {
+        try_placement(make_cell(first_bit(remaining2)));
       }
     }
   }
