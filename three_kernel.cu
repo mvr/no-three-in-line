@@ -2,6 +2,7 @@
 #include <vector>
 
 #include "board.cu"
+#include "three_board.cu"
 
 #include "three_kernel.hpp"
 
