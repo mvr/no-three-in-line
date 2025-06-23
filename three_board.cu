@@ -310,16 +310,21 @@ template <unsigned N, unsigned W>
 _DI_ void ThreeBoard<N, W>::propagate() {
   ThreeBoard<N, W> prev;
 
+  BitBoard<W> doneOns = knownOn;
+
   do {
     prev = *this;
 
-    auto forced_orthogonal = force_orthogonal();
-    if(!consistent()) break;
+    ThreeBoard<N, W> prev2;
+    do {
+      prev2 = *this;
+      *this = force_orthogonal();
+      if(!consistent())
+        return;
+    } while(*this != prev2);
 
-    BitBoard<W> newOns = forced_orthogonal.knownOn & ~prev.knownOn;
-    *this = forced_orthogonal;
-
-    eliminate_all_lines(newOns);
+    eliminate_all_lines(knownOn & ~doneOns);
+    doneOns = knownOn;
   } while (*this != prev);
 }
 
