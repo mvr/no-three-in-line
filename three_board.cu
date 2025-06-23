@@ -40,7 +40,6 @@ struct ThreeBoard {
   _DI_ cuda::std::pair<Axis, unsigned> most_constrained() const;
 };
 
-// bounds implementation
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoard<N, W>::bounds() {
   if constexpr (W == 64) {
@@ -182,7 +181,6 @@ _DI_ BinaryCount count_vertically(const uint32_t value) {
   return result;
 }
 
-// force_orthogonal_vert implementation
 template <unsigned N, unsigned W>
 _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
   ThreeBoard<N, W> result = *this;
