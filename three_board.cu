@@ -399,34 +399,43 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
     return ((W == 64) ? __ffsll(val) : __ffs(val)) - 1;
   };
 
-  auto try_placement = [&](auto cell) {
-    ThreeBoard<N, W> subBoard = *this;
-    subBoard.knownOn.set(cell);
-    subBoard.eliminate_all_lines(cell);
-    subBoard.propagate();
-    
-    if (!subBoard.consistent()) {
-      knownOff.set(cell);
-    } else {
-      common.knownOn &= subBoard.knownOn;
-      common.knownOff &= subBoard.knownOff;
-    }
-  };
-
   for (; remaining; remaining &= remaining - 1) {
     auto cell = make_cell(first_bit(remaining));
 
     if(on_count == 1) {
-      try_placement(cell);
+      ThreeBoard<N, W> subBoard = *this;
+      subBoard.knownOn.set(cell);
+      subBoard.eliminate_all_lines(cell);
+      subBoard.propagate();
+
+      if (!subBoard.consistent()) {
+        knownOff.set(cell);
+      } else {
+        common.knownOn &= subBoard.knownOn;
+        common.knownOff &= subBoard.knownOff;
+      }
     } else {
       ThreeBoard<N, W> subBoard = *this;
       subBoard.knownOn.set(cell);
+      subBoard.eliminate_all_lines(cell);
 
+      auto row_knownOn2 = (d == Axis::Horizontal) ? subBoard.knownOn.row(r) : subBoard.knownOn.column(r);
       auto row_knownOff2 = (d == Axis::Horizontal) ? subBoard.knownOff.row(r) : subBoard.knownOff.column(r);
-      typename BitBoard<W>::row_t remaining2 = ~row_knownOff2 & (((typename BitBoard<W>::row_t)1 << N) - 1);
+      typename BitBoard<W>::row_t remaining2 = ~row_knownOn2 & ~row_knownOff2 & (((typename BitBoard<W>::row_t)1 << N) - 1);
 
       for (; remaining2; remaining2 &= remaining2 - 1) {
-        try_placement(make_cell(first_bit(remaining2)));
+        auto cell2 = make_cell(first_bit(remaining2));
+        ThreeBoard<N, W> subBoard2 = subBoard;
+        subBoard2.knownOn.set(cell2);
+        subBoard2.eliminate_all_lines(cell2);
+        subBoard2.propagate();
+
+        if (!subBoard2.consistent()) {
+          subBoard.knownOff.set(cell2);
+        } else {
+          common.knownOn &= subBoard2.knownOn;
+          common.knownOff &= subBoard2.knownOff;
+        }
       }
     }
   }
