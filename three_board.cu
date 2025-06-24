@@ -327,18 +327,26 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   for (auto q = qs.first_on(); !qs.empty();
        qs.erase(q), q = qs.first_on()) {
     knownOff |= eliminate_line(p, q);
+    if (!consistent())
+      break;
   }
   knownOff &= bounds();
 }
 
 template <unsigned N, unsigned W>
 _DI_ void
-ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> seed) {
-  knownOn &= ~seed;
-  for (auto p = seed.first_on(); !seed.empty();
-       seed.erase(p), p = seed.first_on()) {
-    eliminate_all_lines(p);
-    knownOn.set(p);
+ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
+  for (auto p = ps.first_on(); !ps.empty();
+       ps.erase(p), p = ps.first_on()) {
+    BitBoard<W> qs = knownOn & ~ps;
+    for (auto q = qs.first_on(); !qs.empty();
+         qs.erase(q), q = qs.first_on()) {
+      knownOff |= eliminate_line(p, q);
+      if (!consistent())
+        break;
+    }
+    if (!consistent())
+      break;
   }
   knownOff &= bounds();
 }
