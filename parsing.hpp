@@ -127,7 +127,7 @@ std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> 
   });
 }
 
-template<unsigned W, unsigned N>
+template<unsigned N, unsigned W>
 std::string to_rle(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &board) {
   return generic_to_rle<N>([&](int x, int y) -> char {
     if constexpr (W == 64) {
@@ -165,7 +165,7 @@ parse_rle_history(const std::string &rle) {
   return {knownOn, knownOff};
 }
 
-template<unsigned W, unsigned N>
+template<unsigned N, unsigned W>
 std::string to_rle_history(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &knownOn, 
                            const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &knownOff) {
   return generic_to_rle<N>([&](int x, int y) -> char {

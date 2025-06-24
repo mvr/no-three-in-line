@@ -13,7 +13,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
     return;
   }
   if (outcome.solved) {
-    std::cout << to_rle<W, N>(outcome.knownOn) << std::endl;
+    std::cout << to_rle<N, W>(outcome.knownOn) << std::endl;
     return;
   }
 
@@ -126,7 +126,7 @@ int solve_main() {
 
     for (auto &outcome : outcomes) {
       // std::cout << "x = 10, y = 10, rule = LifeHistory" << std::endl;
-      // std::cout << to_rle_history(outcome.knownOn, outcome.knownOff) << std::endl;
+      // std::cout << to_rle_history<N, W>(outcome.knownOn, outcome.knownOff) << std::endl;
       // std::cout << "solved: " << outcome.solved << std::endl;
       // std::cout << "consistent: " << outcome.consistent << std::endl;
       // std::cout << "unknown_pop: " << outcome.unknownPop << std::endl;

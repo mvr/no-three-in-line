@@ -30,7 +30,7 @@ void test_bounds(const board_t<W> &expected) {
   three_bounds_kernel<N, W><<<1, 32>>>(d_a);
   cudaMemcpy(h_a.data(), d_a, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ((to_rle<W, N>(expected)), (to_rle<W, N>(h_a)));
+  EXPECT_EQ((to_rle<N, W>(expected)), (to_rle<N, W>(h_a)));
 
   cudaFree(d_a);
 }
@@ -98,8 +98,8 @@ void test_force(const board_t<W> &inputKnownOn, const board_t<W> &inputKnownOff,
   cudaMemcpy(h_knownOn.data(), d_knownOn, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
   cudaMemcpy(h_knownOff.data(), d_knownOff, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ((to_rle<W, N>(expectedKnownOn)), (to_rle<W, N>(h_knownOn)));
-  EXPECT_EQ((to_rle<W, N>(expectedKnownOff)), (to_rle<W, N>(h_knownOff)));
+  EXPECT_EQ((to_rle<N, W>(expectedKnownOn)), (to_rle<N, W>(h_knownOn)));
+  EXPECT_EQ((to_rle<N, W>(expectedKnownOff)), (to_rle<N, W>(h_knownOff)));
 
   cudaFree(d_knownOn);
   cudaFree(d_knownOff);
@@ -144,7 +144,7 @@ TEST(ThreeBoard, ForceHoriVert) {
 //   line_kernel<N, W><<<1, 32>>>(d_a, p, q);
 //   cudaMemcpy(h_a.data(), d_a, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
 
-//   EXPECT_EQ((to_rle<W, N>(expected)), (to_rle<W, N>(h_a)));
+//   EXPECT_EQ((to_rle<N, W>(expected)), (to_rle<N, W>(h_a)));
 //   cudaFree(d_a);
 // }
 
