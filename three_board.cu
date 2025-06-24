@@ -418,6 +418,7 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
       ThreeBoard<N, W> subBoard = *this;
       subBoard.knownOn.set(cell);
       subBoard.eliminate_all_lines(cell);
+      subBoard.propagate();
 
       auto row_knownOn2 = (d == Axis::Horizontal) ? subBoard.knownOn.row(r) : subBoard.knownOn.column(r);
       auto row_knownOff2 = (d == Axis::Horizontal) ? subBoard.knownOff.row(r) : subBoard.knownOff.column(r);
