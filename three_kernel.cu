@@ -26,16 +26,22 @@ __global__ void work_kernel(Problem<W> *problems, Outcome<W> *outcomes) {
   board.knownOn.save(outcome.knownOn.data());
   board.knownOff.save(outcome.knownOff.data());
 
-  unsigned unknown_pop = board.unknown_pop();
   bool consistent = board.consistent();
-  auto [axis, row] = board.most_constrained();
 
   if(threadIdx.x == 0) {
-    outcome.unknownPop = unknown_pop;
-    outcome.solved = outcome.unknownPop == 0;
     outcome.consistent = consistent;
-    outcome.axis = axis;
-    outcome.ix = row;
+  }
+
+  if(consistent) {
+    unsigned unknown_pop = board.unknown_pop();
+    auto [row, _] = board.most_constrained_row();
+
+    if(threadIdx.x == 0) {
+      outcome.unknownPop = unknown_pop;
+      outcome.solved = outcome.unknownPop == 0;
+      outcome.axis = Axis::Horizontal;
+      outcome.ix = row;
+    }
   }
 }
 
