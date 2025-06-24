@@ -257,32 +257,66 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
   if (p.first == q.first || p.second == q.second)
     return BitBoard<W>();
 
-  BitBoard<W> line = BitBoard<W>::line(p, q);
+  if (p.second > q.second)
+    cuda::std::swap(p, q);
+
+  cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
+
+  // TODO: lookup table
+  int factor = binary_gcd(std::abs(delta.first), delta.second);
+  delta.first = delta.first / factor;
+  delta.second = delta.second / factor;
+
+  bool smaller_oob = ((int)p.first < delta.first) || (p.second < delta.second);
+  bool larger_oob = factor == 1
+    && ((q.first + delta.first >= N) || (q.second + delta.second >= N));
+
+  if(smaller_oob && larger_oob)
+    return BitBoard<W>();
+
+  unsigned p_quo = p.second / delta.second;
+  unsigned p_rem = p.second % delta.second;
+
+  BitBoard<W> result;
 
   if constexpr (W == 64) {
     {
       unsigned row = 2*threadIdx.x;
+      if (row % delta.second == p_rem) {
+        int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
+        if(col >= 0 && col < 32) result.state.x |= 1 << col;
+        else if(col >= 32 && col < 64) result.state.y |= 1 << (col-32);
+      }
       if (p.second == row || q.second == row) {
-        line.state.x = 0;
-        line.state.y = 0;
+        result.state.x = 0;
+        result.state.y = 0;
       }
     }
 
     {
       unsigned row = 2*threadIdx.x+1;
+      if (row % delta.second == p_rem) {
+        int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
+        if(col >= 0 && col < 32) result.state.z |= 1 << col;
+        else if(col >= 32 && col < 64) result.state.w |= 1 << (col-32);
+      }
       if (p.second == row || q.second == row) {
-        line.state.z = 0;
-        line.state.w = 0;
+        result.state.z = 0;
+        result.state.w = 0;
       }
     }
   } else {
     unsigned row = threadIdx.x;
+    if (row % delta.second == p_rem) {
+      int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
+      if(col >= 0 && col < 32) result.state |= 1 << col;
+    }
     if (p.second == row || q.second == row) {
-      line.state = 0;
+      result.state = 0;
     }
   }
-  
-  return line;
+
+  return result;
 }
 
 template <unsigned N, unsigned W>

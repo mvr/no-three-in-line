@@ -104,8 +104,6 @@ struct BitBoard {
 
   _DI_ bool empty() const;
   _DI_ int pop() const;
-
-  static _DI_ BitBoard line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
 };
 
 template<unsigned W>
@@ -276,52 +274,4 @@ _DI_ int BitBoard<W>::pop() const {
   return __shfl_sync(0xffffffff, val, 0);
 }
 
-template<unsigned W>
-_DI_ BitBoard<W> BitBoard<W>::line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q) {
-  if (p.first == q.first || p.second == q.second)
-    return BitBoard();
 
-  if (p.second > q.second)
-    cuda::std::swap(p, q);
-
-  cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
-
-  {
-    int factor = binary_gcd(std::abs(delta.first), delta.second);
-    delta.first = delta.first / factor;
-    delta.second = delta.second / factor;
-  }
-
-  unsigned p_quo = p.second / delta.second;
-  unsigned p_rem = p.second % delta.second;
-
-  BitBoard result;
-
-  if constexpr (W == 64) {
-    {
-      unsigned row = 2*threadIdx.x;
-      if (row % delta.second == p_rem) {
-        int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
-        if(col >= 0 && col < 32) result.state.x |= 1 << col;
-        else if(col >= 32 && col < 64) result.state.y |= 1 << (col-32);
-      }
-    }
-
-    {
-      unsigned row = 2*threadIdx.x+1;
-      if (row % delta.second == p_rem) {
-        int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
-        if(col >= 0 && col < 32) result.state.z |= 1 << col;
-        else if(col >= 32 && col < 64) result.state.w |= 1 << (col-32);
-      }
-    }
-  } else {
-    unsigned row = threadIdx.x;
-    if (row % delta.second == p_rem) {
-      int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
-      if(col >= 0 && col < 32) result.state |= 1 << col;
-    }
-  }
-
-  return result;
-}
