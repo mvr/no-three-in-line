@@ -12,6 +12,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
   if (!outcome.consistent) {
     return;
   }
+
   if (outcome.solved) {
     std::cout << to_rle<N, W>(outcome.knownOn) << std::endl;
     return;
@@ -104,19 +105,12 @@ template<unsigned W>
 int solve_main() {
   init_lookup_tables_host();
 
-  // auto [knownOn, knownOff] = parse_rle_history("");
-  // Problem<W> problem = {knownOn, knownOff, {}};
-
   std::vector<Problem<W>> stack = {};
 
   Outcome<W> blank = {{}, {}, false, true, N*N, Axis::Horizontal, 0};
   resolve_outcome<W>(blank, stack);
 
   while (!stack.empty()) {
-    // std::cout << stack.size() << std::endl;
-    // std::cout << "x = 10, y = 10, rule = LifeHistory" << std::endl;
-    // std::cout << to_rle_history(stack.back().knownOn, stack.back().knownOff) << std::endl;
-
     size_t batch_size = std::min(stack.size(), static_cast<size_t>(MAX_BATCH_SIZE));
 
     std::vector<Problem<W>> batch(stack.end() - batch_size, stack.end());
@@ -136,17 +130,9 @@ int solve_main() {
     }
   }
   return 0;
-
-  // std::cout << "x = 10, y = 10, rule = LifeHistory" << std::endl;
-  // std::cout << to_rle_history(result.knownOn, result.knownOff) << std::endl;
-  // std::cout << "solved: " << result.solved << std::endl;
-  // std::cout << "consistent: " << result.consistent << std::endl;
-  // std::cout << "unknown_pop: " << result.unknownPop << std::endl;
-  // std::cout << "ix: " << result.ix << std::endl;
 }
 
 int main() {
-  // Choose bit width based on problem size or configuration
   if (N > 32) {
     return solve_main<64>();
   } else {

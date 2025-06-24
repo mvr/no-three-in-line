@@ -262,6 +262,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
 
   cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
 
+  // Recall div_gcd_table[x][y] = x / gcd(x, y)
   const unsigned first_div = div_gcd_table[std::abs(delta.first)][delta.second];
   const unsigned second_div = div_gcd_table[delta.second][std::abs(delta.first)];
   const bool factor_1 = delta.second == second_div;
@@ -459,7 +460,6 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
 }
 
 
-// soft_branch_all implementation (combined)
 template <unsigned N, unsigned W>
 _DI_ void ThreeBoard<N, W>::soft_branch_all() {
   for (int r = 0; r < N; r++) {
