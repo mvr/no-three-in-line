@@ -262,13 +262,14 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
 
   cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
 
-  // TODO: lookup table
-  int factor = binary_gcd(std::abs(delta.first), delta.second);
-  delta.first = delta.first / factor;
-  delta.second = delta.second / factor;
+  const unsigned first_div = div_gcd_table[std::abs(delta.first)][delta.second];
+  const unsigned second_div = div_gcd_table[delta.second][std::abs(delta.first)];
+  const bool factor_1 = delta.second == second_div;
+  delta.first = (delta.first < 0 ? -1 : 1) * first_div;
+  delta.second = second_div;
 
   bool smaller_oob = ((int)p.first < delta.first) || (p.second < delta.second);
-  bool larger_oob = factor == 1
+  bool larger_oob = factor_1
     && ((q.first + delta.first >= N) || (q.second + delta.second >= N));
 
   if(smaller_oob && larger_oob)

@@ -36,3 +36,5 @@ template <unsigned N, unsigned W>
 std::pair<typename Problem<W>::ArrayType, typename Problem<W>::ArrayType>
 soft_branch(const typename Problem<W>::ArrayType &inputKnownOn,
             const typename Problem<W>::ArrayType &inputKnownOff);
+
+void init_lookup_tables_host();

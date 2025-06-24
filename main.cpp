@@ -102,6 +102,8 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
 
 template<unsigned W>
 int solve_main() {
+  init_lookup_tables_host();
+
   // auto [knownOn, knownOff] = parse_rle_history("");
   // Problem<W> problem = {knownOn, knownOff, {}};
 

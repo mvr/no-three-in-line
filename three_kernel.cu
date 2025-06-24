@@ -1,5 +1,6 @@
 #include <array>
 #include <vector>
+#include <numeric>
 
 #include "board.cu"
 #include "three_board.cu"
@@ -67,3 +68,15 @@ launch_work_kernel<N, 32>(unsigned batch_size, std::vector<Problem<32>> problems
 
 template std::vector<Outcome<64>>
 launch_work_kernel<N, 64>(unsigned batch_size, std::vector<Problem<64>> problems);
+
+void init_lookup_tables_host() {
+  unsigned char host_div_gcd_table[64][64];
+
+  for (unsigned i = 1; i < 64; i++) {
+    for (unsigned j = 1; j < 64; j++) {
+      host_div_gcd_table[i][j] = i / std::gcd(i, j);
+    }
+  }
+
+  cudaMemcpyToSymbol(div_gcd_table, host_div_gcd_table, sizeof(host_div_gcd_table));
+}
