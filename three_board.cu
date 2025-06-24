@@ -333,9 +333,11 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
 template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> seed) {
+  knownOn &= ~seed;
   for (auto p = seed.first_on(); !seed.empty();
        seed.erase(p), p = seed.first_on()) {
     eliminate_all_lines(p);
+    knownOn.set(p);
   }
   knownOff &= bounds();
 }
