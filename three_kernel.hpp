@@ -27,9 +27,24 @@ struct Outcome {
 };
 
 
+template <unsigned W>
+struct DeviceMemory {
+  Problem<W> *d_problems;
+  Outcome<W> *d_outcomes;
+  unsigned max_batch_size;
+  std::vector<Outcome<W>> outcomes_buffer;
+  
+  DeviceMemory(unsigned batch_size);
+  ~DeviceMemory();
+  
+  DeviceMemory(const DeviceMemory&) = delete;
+  DeviceMemory& operator=(const DeviceMemory&) = delete;
+};
+
 template <unsigned N, unsigned W>
 std::vector<Outcome<W>> launch_work_kernel(unsigned batch_size,
-                                           std::vector<Problem<W>> problems);
+                                           std::vector<Problem<W>> problems,
+                                           DeviceMemory<W> &device_mem);
 
 
 template <unsigned N, unsigned W>

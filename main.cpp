@@ -110,13 +110,15 @@ int solve_main() {
   Outcome<W> blank = {{}, {}, false, true, N*N, Axis::Horizontal, 0};
   resolve_outcome<W>(blank, stack);
 
+  DeviceMemory<W> device_mem(MAX_BATCH_SIZE);
+
   while (!stack.empty()) {
     size_t batch_size = std::min(stack.size(), static_cast<size_t>(MAX_BATCH_SIZE));
 
     std::vector<Problem<W>> batch(stack.end() - batch_size, stack.end());
     stack.resize(stack.size() - batch_size);
 
-    std::vector<Outcome<W>> outcomes = launch_work_kernel<N, W>(batch_size, batch);
+    std::vector<Outcome<W>> outcomes = launch_work_kernel<N, W>(batch_size, batch, device_mem);
 
     for (auto &outcome : outcomes) {
       // std::cout << "x = 10, y = 10, rule = LifeHistory" << std::endl;
