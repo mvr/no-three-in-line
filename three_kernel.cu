@@ -93,3 +93,39 @@ void init_lookup_tables_host() {
 
   cudaMemcpyToSymbol(div_gcd_table, host_div_gcd_table, sizeof(host_div_gcd_table));
 }
+
+bool relevant_endpoint(std::pair<unsigned, unsigned> q) {
+  if (q.first == 0 || q.second == 0)
+    return false;
+
+  unsigned factor = std::gcd(q.first, q.second);
+
+  if (factor > 1)
+    // There is a point between that needs checking
+    return true;
+
+  if(q.first * 2 >= N || q.second*2 >= N)
+    // There is no way a third point can fit in the square
+    return false;
+
+  return true;
+}
+
+// TODO: implement W==64 version
+void init_relevant_endpoint_host() {
+  uint64_t host_relevant_endpoint_table[64] = {0};
+
+  for (unsigned i = 0; i < N; i++) {
+    for (unsigned j = 0; j < N; j++) {
+     bool relevant = relevant_endpoint({i, j});
+     if(relevant) {
+       host_relevant_endpoint_table[32+j] |= (1ULL << (32+i));
+       host_relevant_endpoint_table[32+j] |= (1ULL << (32-i));
+       host_relevant_endpoint_table[32-j] |= (1ULL << (32+i));
+       host_relevant_endpoint_table[32-j] |= (1ULL << (32-i));
+     }
+    }
+  }
+
+  cudaMemcpyToSymbol(relevant_endpoint_table, host_relevant_endpoint_table, sizeof(host_relevant_endpoint_table));
+}

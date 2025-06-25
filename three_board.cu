@@ -16,7 +16,7 @@ struct ThreeBoard {
   _DI_ bool operator!=(ThreeBoard<N, W> other) const { return !(*this == other); }
 
   static _DI_ BitBoard<W> bounds();
-  static _DI_ BitBoard<W> line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
+  static _DI_ BitBoard<W> relevant_endpoint(cuda::std::pair<unsigned, unsigned> p);
 
   _DI_ bool consistent() const;
   _DI_ unsigned unknown_pop() const;
@@ -60,6 +60,13 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::bounds() {
     result.state = has_row ? row_bound : 0;
     return result;
   }
+}
+
+template <unsigned N, unsigned W>
+_DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, unsigned> p) {
+  uint64_t fullrow = relevant_endpoint_table[32-p.second+threadIdx.x];
+  uint32_t moved_row = fullrow >> (32-p.first); // And truncated
+  return BitBoard<W>(moved_row);
 }
 
 template <unsigned N, unsigned W>
@@ -324,7 +331,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
 template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
-  BitBoard<W> qs = knownOn;
+  BitBoard<W> qs = knownOn & ThreeBoard<N, W>::relevant_endpoint(p);
   for (auto q = qs.first_on(); !qs.empty();
        qs.erase(q), q = qs.first_on()) {
     knownOff |= eliminate_line(p, q);
@@ -339,7 +346,7 @@ _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
   for (auto p = ps.first_on(); !ps.empty();
        ps.erase(p), p = ps.first_on()) {
-    BitBoard<W> qs = knownOn & ~ps;
+    BitBoard<W> qs = knownOn & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
     for (auto q = qs.first_on(); !qs.empty();
          qs.erase(q), q = qs.first_on()) {
       knownOff |= eliminate_line(p, q);

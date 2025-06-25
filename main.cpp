@@ -104,6 +104,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
 template<unsigned W>
 int solve_main() {
   init_lookup_tables_host();
+  init_relevant_endpoint_host();
 
   std::vector<Problem<W>> stack = {};
 
