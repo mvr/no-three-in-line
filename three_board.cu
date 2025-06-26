@@ -473,24 +473,24 @@ _DI_ void ThreeBoard<N, W>::soft_branch_all() {
 template <unsigned N, unsigned W>
 _DI_ cuda::std::pair<unsigned, unsigned>
 ThreeBoard<N, W>::most_constrained_row() const {
+  unsigned row;
+  unsigned unknown;
+
   if constexpr (W == 64) {
     BitBoard<W> known = knownOn | knownOff;
-    unsigned unknown_xy = N - __popc(known.state.x) + __popc(known.state.y);
-    unsigned unknown_zw = N - __popc(known.state.z) + __popc(known.state.w);
+    unsigned unknown_xy = N - __popc(known.state.x) - __popc(known.state.y);
+    unsigned unknown_zw = N - __popc(known.state.z) - __popc(known.state.w);
 
     if(knownOn.state.x == 0 && knownOn.state.y == 0)
-      unknown_xy = unknown_xy * (unknown_xy - 1);
+      unknown_xy = unknown_xy * (unknown_xy - 1) / 2;
 
     if(knownOn.state.z == 0 && knownOn.state.w == 0)
-      unknown_zw = unknown_zw * (unknown_zw - 1);
+      unknown_zw = unknown_zw * (unknown_zw - 1) / 2;
 
     if (threadIdx.x * 2 >= N || unknown_xy == 0)
       unknown_xy = std::numeric_limits<unsigned>::max();
     if (threadIdx.x * 2 + 1 >= N || unknown_zw == 0)
       unknown_zw = std::numeric_limits<unsigned>::max();
-
-    unsigned row;
-    unsigned unknown;
 
     if (unknown_xy < unknown_zw) {
       row = threadIdx.x * 2;
@@ -499,46 +499,33 @@ ThreeBoard<N, W>::most_constrained_row() const {
       row = threadIdx.x * 2 + 1;
       unknown = unknown_zw;
     }
-
-    for (int offset = 16; offset > 0; offset /= 2) {
-      unsigned other_row = __shfl_down_sync(0xffffffff, row, offset);
-      unsigned other_unknown = __shfl_down_sync(0xffffffff, unknown, offset);
-      if (other_unknown < unknown) {
-        row = other_row;
-        unknown = other_unknown;
-      }
-    }
-
-    row = __shfl_sync(0xffffffff, row, 0);
-    unknown = __shfl_sync(0xffffffff, unknown, 0);
-
-    return {row, unknown};
   } else {
     BitBoard<W> known = knownOn | knownOff;
-    unsigned unknown = N - __popc(known.state);
+    unknown = N - __popc(known.state);
 
     if(knownOn.state == 0)
-      unknown = unknown * (unknown - 1);
+      unknown = unknown * (unknown - 1) / 2;
 
     if (threadIdx.x >= N || unknown == 0)
       unknown = std::numeric_limits<unsigned>::max();
 
-    unsigned row = threadIdx.x;
-
-    for (int offset = 16; offset > 0; offset /= 2) {
-      unsigned other_row = __shfl_down_sync(0xffffffff, row, offset);
-      unsigned other_unknown = __shfl_down_sync(0xffffffff, unknown, offset);
-      if (other_unknown < unknown) {
-        row = other_row;
-        unknown = other_unknown;
-      }
-    }
-
-    row = __shfl_sync(0xffffffff, row, 0);
-    unknown = __shfl_sync(0xffffffff, unknown, 0);
-
-    return {row, unknown};
+    row = threadIdx.x;
   }
+
+  for (int offset = 16; offset > 0; offset /= 2) {
+    unsigned other_row = __shfl_down_sync(0xffffffff, row, offset);
+    unsigned other_unknown = __shfl_down_sync(0xffffffff, unknown, offset);
+
+    if (other_unknown < unknown) {
+      row = other_row;
+      unknown = other_unknown;
+    }
+  }
+
+  row = __shfl_sync(0xffffffff, row, 0);
+  unknown = __shfl_sync(0xffffffff, unknown, 0);
+
+  return {row, unknown};
 }
 
 template <unsigned N, unsigned W>
@@ -560,7 +547,7 @@ ThreeBoard<N, W>::most_constrained_col() const {
     }
 
     if (col_knownOn == 0) {
-      unknown = unknown * (unknown - 1);
+      unknown = unknown * (unknown - 1) / 2;
     }
 
     if (unknown > 0 && unknown < min_unknown) {
