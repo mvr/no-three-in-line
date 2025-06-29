@@ -69,33 +69,42 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
   }
 
   if (on_count == 0) {
+    row_t prev_offs = 0;
     for (; remaining; remaining &= remaining - 1) {
       row_t lowest_bit = remaining & -remaining;
 
-      row_t remaining2 = remaining & ~lowest_bit;
-      for (; remaining2; remaining2 &= remaining2 - 1) {
-        row_t lowest_bit2 = remaining2 & -remaining2;
+      Problem<W> problem = {outcome.knownOn, outcome.knownOff, {}};
 
-        Problem<W> problem = {outcome.knownOn, outcome.knownOff, {}};
-        if (outcome.axis == Axis::Horizontal) {
-          problem.knownOn[outcome.ix] |= lowest_bit | lowest_bit2;
-          problem.seed[outcome.ix] |= lowest_bit | lowest_bit2;
-        } else { // Axis::Vertical
-          unsigned r1, r2;
-          if constexpr (W == 64) {
-            r1 = __builtin_ctzll(lowest_bit);
-            r2 = __builtin_ctzll(lowest_bit2);
-          } else {
-            r1 = __builtin_ctz(lowest_bit);
-            r2 = __builtin_ctz(lowest_bit2);
-          }
-          problem.knownOn[r1] |= (row_t)1 << outcome.ix;
-          problem.knownOn[r2] |= (row_t)1 << outcome.ix;
-          problem.seed[r1] |= (row_t)1 << outcome.ix;
-          problem.seed[r2] |= (row_t)1 << outcome.ix;
+      if (outcome.axis == Axis::Horizontal) {
+        problem.knownOn[outcome.ix] |= lowest_bit;
+        problem.knownOff[outcome.ix] |= prev_offs;
+        problem.seed[outcome.ix] |= lowest_bit;
+      } else { // Axis::Vertical
+        unsigned r;
+        if constexpr (W == 64) {
+          r = __builtin_ctzll(lowest_bit);
+        } else {
+          r = __builtin_ctz(lowest_bit);
         }
-        stack.push_back(problem);
+        problem.knownOn[r] |= (row_t)1 << outcome.ix;
+        problem.seed[r] |= (row_t)1 << outcome.ix;
+
+        row_t prev_offs_remaining = prev_offs;
+        for (; prev_offs_remaining; prev_offs_remaining &= prev_offs_remaining - 1) {
+          row_t lowest_bit = prev_offs_remaining & -prev_offs_remaining;
+          unsigned r;
+          if constexpr (W == 64) {
+            r = __builtin_ctzll(lowest_bit);
+          } else {
+            r = __builtin_ctz(lowest_bit);
+          }
+          problem.knownOff[r] |= (row_t)1 << outcome.ix;
+        }
       }
+
+      stack.push_back(problem);
+
+      prev_offs |= lowest_bit;
     }
   }
 
