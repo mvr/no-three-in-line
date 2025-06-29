@@ -104,6 +104,19 @@ struct BitBoard {
 
   _DI_ bool empty() const;
   _DI_ int pop() const;
+
+  _DI_ BitBoard<W> rotate_torus(int x, int y) const;
+  _DI_ BitBoard<W> rotate_torus(cuda::std::pair<int, int> cell) const { return rotate_torus(cell.first, cell.second); }
+  _DI_ BitBoard<W> zoi() const;
+
+  // These do *not* preserve the origin
+  _DI_ BitBoard<W> rotate_90() const;
+  _DI_ BitBoard<W> rotate_180() const;
+  _DI_ BitBoard<W> rotate_270() const;
+  _DI_ BitBoard<W> flip_horizontal() const;
+  _DI_ BitBoard<W> flip_vertical() const;
+  _DI_ BitBoard<W> flip_diagonal() const;
+  _DI_ BitBoard<W> flip_anti_diagonal() const;
 };
 
 template<unsigned W>
@@ -274,4 +287,195 @@ _DI_ int BitBoard<W>::pop() const {
   return __shfl_sync(0xffffffff, val, 0);
 }
 
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::rotate_torus(int rh, int rv) const {
+  if constexpr (W == 64) {
+    uint4 t = state;
+    if (rv & 63) {
+      // translate vertically:
+      uint4 d;
+      d.x = (rv & 1) ? t.z : t.x;
+      d.y = (rv & 1) ? t.w : t.y;
+      d.z = (rv & 1) ? t.x : t.z;
+      d.w = (rv & 1) ? t.y : t.w;
+      int upperthread = (((-rv) >> 1) + threadIdx.x) & 31;
+      int lowerthread = (((-rv + 1) >> 1) + threadIdx.x) & 31;
+      t.x = __shfl_sync(0xffffffffu, d.x, upperthread);
+      t.y = __shfl_sync(0xffffffffu, d.y, upperthread);
+      t.z = __shfl_sync(0xffffffffu, d.z, lowerthread);
+      t.w = __shfl_sync(0xffffffffu, d.w, lowerthread);
+    }
 
+    if (rh & 63) {
+      // translate horizontally:
+      uint4 d;
+      d.x = (rh & 32) ? t.y : t.x;
+      d.y = (rh & 32) ? t.x : t.y;
+      d.z = (rh & 32) ? t.w : t.z;
+      d.w = (rh & 32) ? t.z : t.w;
+      int sa = rh & 31;
+      t.x = (d.x << sa) | (d.y >> (32 - sa));
+      t.y = (d.y << sa) | (d.x >> (32 - sa));
+      t.z = (d.z << sa) | (d.w >> (32 - sa));
+      t.w = (d.w << sa) | (d.z >> (32 - sa));
+    }
+    return BitBoard<W>(t);
+  } else {
+    uint32_t t = state;
+    if (rv & 31) {
+      int otherthread = ((-rv) + threadIdx.x) & 31;
+      t = __shfl_sync(0xffffffffu, t, otherthread);
+    }
+    if (rh & 31) {
+      int sa = rh & 31;
+      t = (t << sa) | (t >> (32 - sa));
+    }
+    return BitBoard<W>(t);
+  }
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::zoi() const {
+  BitBoard<W> vert = rotate_torus(0, -1) | *this | rotate_torus(0, 1);
+  return vert.rotate_torus(-1, 0) | vert | vert.rotate_torus(1, 0);
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::flip_horizontal() const {
+  BitBoard<W> result;
+  if constexpr (W == 64) {
+    result.state.x = __brev(state.y);
+    result.state.y = __brev(state.x);
+    result.state.z = __brev(state.w);
+    result.state.w = __brev(state.z);
+  } else {
+    result.state = __brev(state);
+  }
+  return result;
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::flip_vertical() const {
+  BitBoard<W> result;
+  if constexpr (W == 64) {
+    int my_row = threadIdx.x & 31;
+    int src_row = 31 - my_row;
+    
+    result.state.x = __shfl_sync(0xffffffffu, state.z, src_row);
+    result.state.y = __shfl_sync(0xffffffffu, state.w, src_row);
+    result.state.z = __shfl_sync(0xffffffffu, state.x, src_row);
+    result.state.w = __shfl_sync(0xffffffffu, state.y, src_row);
+  } else {
+    int my_row = threadIdx.x & 31;
+    int src_row = 31 - my_row;
+    result.state = __shfl_sync(0xffffffffu, state, src_row);
+  }
+  return result;
+}
+
+template<unsigned W>
+_DI_ uint32_t shuffle_round(uint32_t a, uint32_t mask, unsigned shift) {
+  unsigned lane_shift;
+  if constexpr (W == 64){
+    lane_shift = shift >> 1;
+  } else {
+    lane_shift = shift;
+  }
+
+  uint32_t b = __shfl_xor_sync(0xffffffffu, a, lane_shift);
+
+  uint32_t c;
+  if ((threadIdx.x & lane_shift) == 0) {
+    c = b << shift;
+  } else {
+    mask = ~mask;
+    c = b >> shift;
+  }
+  return (a & mask) | (c & ~mask);
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::flip_diagonal() const {
+  // TODO: I think with some effort we could have a tensor core do
+  // this for us in a single instruction.
+
+  if constexpr (W == 64) {
+    uint4 result = state;
+
+    // The first round rearranges the uint4:
+    {
+      uint32_t other_x = __shfl_xor_sync(0xffffffffu, state.x, 16);
+      uint32_t other_y = __shfl_xor_sync(0xffffffffu, state.y, 16);
+      uint32_t other_z = __shfl_xor_sync(0xffffffffu, state.z, 16);
+      uint32_t other_w = __shfl_xor_sync(0xffffffffu, state.w, 16);
+
+      if((threadIdx.x & 16) == 0) {
+        result.y = other_x;
+        result.w = other_z;
+      } else {
+        result.x = other_y;
+        result.z = other_w;
+      }
+    }
+
+    // The middle rounds are the same as before
+    result.x = shuffle_round<64>(result.x, 0x0000ffff, 16);
+    result.x = shuffle_round<64>(result.x, 0x00ff00ff, 8);
+    result.x = shuffle_round<64>(result.x, 0x0f0f0f0f, 4);
+    result.x = shuffle_round<64>(result.x, 0x33333333, 2);
+    result.y = shuffle_round<64>(result.y, 0x0000ffff, 16);
+    result.y = shuffle_round<64>(result.y, 0x00ff00ff, 8);
+    result.y = shuffle_round<64>(result.y, 0x0f0f0f0f, 4);
+    result.y = shuffle_round<64>(result.y, 0x33333333, 2);
+    result.z = shuffle_round<64>(result.z, 0x0000ffff, 16);
+    result.z = shuffle_round<64>(result.z, 0x00ff00ff, 8);
+    result.z = shuffle_round<64>(result.z, 0x0f0f0f0f, 4);
+    result.z = shuffle_round<64>(result.z, 0x33333333, 2);
+    result.w = shuffle_round<64>(result.w, 0x0000ffff, 16);
+    result.w = shuffle_round<64>(result.w, 0x00ff00ff, 8);
+    result.w = shuffle_round<64>(result.w, 0x0f0f0f0f, 4);
+    result.w = shuffle_round<64>(result.w, 0x33333333, 2);
+
+    // The last round happens within a single lane:
+    {
+      uint32_t mask = 0x55555555;
+      uint32_t final_x = (result.x & mask) | ((result.z << 1) & ~mask);
+      uint32_t final_z = (result.z & ~mask) | ((result.x >> 1) & mask);
+      uint32_t final_y = (result.y & mask) | ((result.w << 1) & ~mask);
+      uint32_t final_w = (result.w & ~mask) | ((result.y >> 1) & mask);
+      result = {final_x, final_y, final_z, final_w};
+    }
+
+    return BitBoard<W>(result);
+  } else {
+    // Transpose bitmask.
+    uint32_t result = state;
+    result = shuffle_round<32>(result, 0x0000ffff, 16);
+    result = shuffle_round<32>(result, 0x00ff00ff, 8);
+    result = shuffle_round<32>(result, 0x0f0f0f0f, 4);
+    result = shuffle_round<32>(result, 0x33333333, 2);
+    result = shuffle_round<32>(result, 0x55555555, 1);
+
+    return BitBoard<W>(result);
+  }
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::rotate_90() const {
+  return flip_diagonal().flip_vertical();
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::rotate_180() const {
+  return flip_horizontal().flip_vertical();
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::rotate_270() const {
+  return flip_diagonal().flip_horizontal();
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::flip_anti_diagonal() const {
+  return rotate_180().flip_diagonal();
+}
