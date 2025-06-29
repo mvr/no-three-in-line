@@ -251,7 +251,7 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
     return {x, y};
   } else {
     unsigned x = __ffs(state) - 1;
-    unsigned y = threadIdx.x;
+    unsigned y = threadIdx.x & 31;
 
     uint32_t mask = __ballot_sync(0xffffffffu, state);
     unsigned first_lane = __ffs(mask) - 1;

@@ -69,7 +69,7 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, u
 
     // For row threadIdx.x * 2
     {
-      unsigned row_idx = 64 - p.second + (threadIdx.x * 2);
+      unsigned row_idx = (64 - p.second + ((threadIdx.x & 31) * 2));
       uint64_t full_low_bits = relevant_endpoint_table_64[row_idx * 2];
       uint64_t full_high_bits = relevant_endpoint_table_64[row_idx * 2 + 1];
       if(p.first < 32) {
@@ -85,7 +85,7 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, u
 
     // For row threadIdx.x * 2 + 1
     {
-      unsigned row_idx = 64 - p.second + (threadIdx.x * 2 + 1);
+      unsigned row_idx = 64 - p.second + ((threadIdx.x & 31) * 2 + 1);
       uint64_t full_low_bits = relevant_endpoint_table_64[row_idx * 2];
       uint64_t full_high_bits = relevant_endpoint_table_64[row_idx * 2 + 1];
       if(p.first < 32) {
@@ -101,7 +101,7 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, u
     
     return result;
   } else {
-    uint64_t fullrow = relevant_endpoint_table[32-p.second+threadIdx.x];
+    uint64_t fullrow = relevant_endpoint_table[32-p.second+(threadIdx.x & 31)];
     uint32_t moved_row = fullrow >> (32-p.first); // And truncated
     return BitBoard<W>(moved_row);
   }
@@ -328,7 +328,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
 
   if constexpr (W == 64) {
     {
-      unsigned row = 2*threadIdx.x;
+      unsigned row = 2*(threadIdx.x & 31);
       if (row % delta.second == p_rem) {
         int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
         if(col >= 0 && col < 32) result.state.x |= 1 << col;
@@ -341,7 +341,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
     }
 
     {
-      unsigned row = 2*threadIdx.x+1;
+      unsigned row = 2*((threadIdx.x&31)+1);
       if (row % delta.second == p_rem) {
         int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
         if(col >= 0 && col < 32) result.state.z |= 1 << col;
@@ -353,7 +353,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
       }
     }
   } else {
-    unsigned row = threadIdx.x;
+    unsigned row = threadIdx.x & 31;
     if (row % delta.second == p_rem) {
       int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
       if(col >= 0 && col < 32) result.state |= 1 << col;
@@ -525,16 +525,16 @@ ThreeBoard<N, W>::most_constrained_row() const {
     if(knownOn.state.z == 0 && knownOn.state.w == 0)
       unknown_zw = unknown_zw * (unknown_zw - 1) / 2;
 
-    if (threadIdx.x * 2 >= N || unknown_xy == 0)
+    if ((threadIdx.x & 31) * 2 >= N || unknown_xy == 0)
       unknown_xy = std::numeric_limits<unsigned>::max();
-    if (threadIdx.x * 2 + 1 >= N || unknown_zw == 0)
+    if ((threadIdx.x & 31) * 2 + 1 >= N || unknown_zw == 0)
       unknown_zw = std::numeric_limits<unsigned>::max();
 
     if (unknown_xy < unknown_zw) {
-      row = threadIdx.x * 2;
+      row = (threadIdx.x & 31) * 2;
       unknown = unknown_xy;
     } else {
-      row = threadIdx.x * 2 + 1;
+      row = (threadIdx.x & 31) * 2 + 1;
       unknown = unknown_zw;
     }
   } else {
@@ -544,10 +544,10 @@ ThreeBoard<N, W>::most_constrained_row() const {
     if(knownOn.state == 0)
       unknown = unknown * (unknown - 1) / 2;
 
-    if (threadIdx.x >= N || unknown == 0)
+    if ((threadIdx.x & 31) >= N || unknown == 0)
       unknown = std::numeric_limits<unsigned>::max();
 
-    row = threadIdx.x;
+    row = (threadIdx.x & 31);
   }
 
   for (int offset = 16; offset > 0; offset /= 2) {

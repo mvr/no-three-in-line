@@ -22,8 +22,13 @@ DeviceMemory<W>::~DeviceMemory() {
 }
 
 template <unsigned N, unsigned W>
-__global__ void work_kernel(Problem<W> *problems, Outcome<W> *outcomes) {
-  Problem<W> &problem = problems[blockIdx.x];
+__global__ void work_kernel(unsigned problem_count, Problem<W> *problems, Outcome<W> *outcomes) {
+  const unsigned problem_idx = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
+
+  if(problem_idx >= problem_count)
+    return;
+
+  Problem<W> &problem = problems[problem_idx];
   BitBoard<W> seed = BitBoard<W>::load(problem.seed.data());
 
   ThreeBoard<N, W> board;
@@ -34,13 +39,13 @@ __global__ void work_kernel(Problem<W> *problems, Outcome<W> *outcomes) {
   board.propagate();
   board.soft_branch_all();
 
-  Outcome<W> &outcome = outcomes[blockIdx.x];
+  Outcome<W> &outcome = outcomes[problem_idx];
   board.knownOn.save(outcome.knownOn.data());
   board.knownOff.save(outcome.knownOff.data());
 
   bool consistent = board.consistent();
 
-  if(threadIdx.x == 0) {
+  if((threadIdx.x & 31) == 0) {
     outcome.consistent = consistent;
   }
 
@@ -48,7 +53,7 @@ __global__ void work_kernel(Problem<W> *problems, Outcome<W> *outcomes) {
     unsigned unknown_pop = board.unknown_pop();
     auto [row, _] = board.most_constrained_row();
 
-    if(threadIdx.x == 0) {
+    if((threadIdx.x & 31) == 0) {
       outcome.unknownPop = unknown_pop;
       outcome.solved = outcome.unknownPop == 0;
       outcome.axis = Axis::Horizontal;
@@ -65,7 +70,8 @@ launch_work_kernel(unsigned batch_size,
                    DeviceMemory<W> &device_mem) {
   cudaMemcpy(device_mem.d_problems, problems.data(), batch_size * sizeof(Problem<W>), cudaMemcpyHostToDevice);
 
-  work_kernel<N, W><<<batch_size, 32>>>(device_mem.d_problems, device_mem.d_outcomes);
+  unsigned blocks = ((batch_size-1) / WARPS_PER_BLOCK) + 1;
+  work_kernel<N, W><<<blocks, WARPS_PER_BLOCK * 32>>>(batch_size, device_mem.d_problems, device_mem.d_outcomes);
 
   device_mem.outcomes_buffer.resize(batch_size);
   cudaMemcpy(device_mem.outcomes_buffer.data(), device_mem.d_outcomes, batch_size * sizeof(Outcome<W>), cudaMemcpyDeviceToHost);
