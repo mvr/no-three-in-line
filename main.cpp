@@ -105,6 +105,7 @@ template<unsigned W>
 int solve_main() {
   init_lookup_tables_host();
   init_relevant_endpoint_host();
+  init_relevant_endpoint_host_64();
 
   std::vector<Problem<W>> stack = {};
 

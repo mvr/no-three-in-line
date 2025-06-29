@@ -64,9 +64,47 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::bounds() {
 
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, unsigned> p) {
-  uint64_t fullrow = relevant_endpoint_table[32-p.second+threadIdx.x];
-  uint32_t moved_row = fullrow >> (32-p.first); // And truncated
-  return BitBoard<W>(moved_row);
+  if constexpr (W == 64) {
+    BitBoard<W> result;
+
+    // For row threadIdx.x * 2
+    {
+      unsigned row_idx = 64 - p.second + (threadIdx.x * 2);
+      uint64_t full_low_bits = relevant_endpoint_table_64[row_idx * 2];
+      uint64_t full_high_bits = relevant_endpoint_table_64[row_idx * 2 + 1];
+      if(p.first < 32) {
+        // Origin ends up in state.x
+        result.state.x = (full_low_bits >> (64 - p.first)) | (full_high_bits << p.first);
+        result.state.y = full_high_bits >> (32 - p.first);
+      } else {
+        // Origin ends up in state.y
+        result.state.x = full_low_bits >> (64 - p.first);
+        result.state.y = (full_low_bits >> (64 - (p.first - 32))) | (full_high_bits << (p.first - 32));
+      }
+    }
+
+    // For row threadIdx.x * 2 + 1
+    {
+      unsigned row_idx = 64 - p.second + (threadIdx.x * 2 + 1);
+      uint64_t full_low_bits = relevant_endpoint_table_64[row_idx * 2];
+      uint64_t full_high_bits = relevant_endpoint_table_64[row_idx * 2 + 1];
+      if(p.first < 32) {
+        // Origin ends up in state.z
+        result.state.z = (full_low_bits >> (64 - p.first)) | (full_high_bits << p.first);
+        result.state.w = full_high_bits >> (32 - p.first);
+      } else {
+        // Origin ends up in state.w
+        result.state.z = full_low_bits >> (64 - p.first);
+        result.state.w = (full_low_bits >> (64 - (p.first - 32))) | (full_high_bits << (p.first - 32));
+      }
+    }
+    
+    return result;
+  } else {
+    uint64_t fullrow = relevant_endpoint_table[32-p.second+threadIdx.x];
+    uint32_t moved_row = fullrow >> (32-p.first); // And truncated
+    return BitBoard<W>(moved_row);
+  }
 }
 
 template <unsigned N, unsigned W>

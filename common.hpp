@@ -52,6 +52,6 @@ _DI_ uint32_t binary_gcd(uint32_t x, uint32_t y) {
 
 __constant__ unsigned char div_gcd_table[64][64];
 
-// TODO: W==64 version
 __constant__ uint64_t relevant_endpoint_table[64];
+__constant__ uint64_t relevant_endpoint_table_64[256];
 #endif

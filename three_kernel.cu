@@ -111,7 +111,6 @@ bool relevant_endpoint(std::pair<unsigned, unsigned> q) {
   return true;
 }
 
-// TODO: implement W==64 version
 void init_relevant_endpoint_host() {
   uint64_t host_relevant_endpoint_table[64] = {0};
 
@@ -119,13 +118,38 @@ void init_relevant_endpoint_host() {
     for (unsigned j = 0; j < N; j++) {
      bool relevant = relevant_endpoint({i, j});
      if(relevant) {
-       host_relevant_endpoint_table[32+j] |= (1ULL << (32+i));
-       host_relevant_endpoint_table[32+j] |= (1ULL << (32-i));
-       host_relevant_endpoint_table[32-j] |= (1ULL << (32+i));
-       host_relevant_endpoint_table[32-j] |= (1ULL << (32-i));
+       host_relevant_endpoint_table[32+j] |= 1ULL << (32+i);
+       host_relevant_endpoint_table[32+j] |= 1ULL << (32-i);
+       host_relevant_endpoint_table[32-j] |= 1ULL << (32+i);
+       host_relevant_endpoint_table[32-j] |= 1ULL << (32-i);
      }
     }
   }
 
   cudaMemcpyToSymbol(relevant_endpoint_table, host_relevant_endpoint_table, sizeof(host_relevant_endpoint_table));
+}
+
+// 128x128 grid from (-64, -64) to (63, 63)
+// Layout A[0], A[1]
+//        A[2], A[3]
+//        A[4], A[5]
+// Etc
+// So (0, 0) is stored in A[129], awkwardly
+
+void init_relevant_endpoint_host_64() {
+  uint64_t host_relevant_endpoint_table_64[256] = {0};
+
+  for (unsigned i = 1; i < N; i++) {
+    for (unsigned j = 1; j < N; j++) {
+     bool relevant = relevant_endpoint({i, j});
+     if(relevant) {
+       host_relevant_endpoint_table_64[(64+j)*2 + 0] |= 1ULL << (64-i);
+       host_relevant_endpoint_table_64[(64+j)*2 + 1] |= 1ULL << i;
+       host_relevant_endpoint_table_64[(64-j)*2 + 0] |= 1ULL << (64-i);
+       host_relevant_endpoint_table_64[(64-j)*2 + 1] |= 1ULL << i;
+     }
+    }
+  }
+
+  cudaMemcpyToSymbol(relevant_endpoint_table_64, host_relevant_endpoint_table_64, sizeof(host_relevant_endpoint_table_64));
 }
