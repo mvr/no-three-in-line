@@ -208,8 +208,7 @@ _DI_ void BitBoard<W>::set(int x, int y) {
     bool should_act = (threadIdx.x & 31) == y;
     unsigned int bit = 1u << (x & 31);
 
-    if(should_act)
-      state |= bit;
+    state |= bit & (should_act ? 0xFFFFFFFF : 0);
   }
 }
 
@@ -227,36 +226,35 @@ _DI_ void BitBoard<W>::erase(int x, int y) {
     bool should_act = (threadIdx.x & 31) == y;
     unsigned int bit = 1u << (x & 31);
 
-    if(should_act)
-      state &= ~bit;
+    state &= ~(bit & (should_act ? 0xFFFFFFFF : 0));
   }
 }
 
 template<unsigned W>
 _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
   if constexpr (W == 64) {
-    int x_low = __ffsll((uint64_t) state.y << 32 | state.x) - 1;
-    int x_high = __ffsll((uint64_t) state.w << 32 | state.z) - 1;
+    unsigned x_low = __ffsll((uint64_t) state.y << 32 | state.x) - 1;
+    unsigned x_high = __ffsll((uint64_t) state.w << 32 | state.z) - 1;
 
     bool use_high = ((state.x | state.y) == 0);
-    int x = use_high ? x_high : x_low;
+    unsigned x = use_high ? x_high : x_low;
 
-    int y_base = (threadIdx.x & 31) << 1;
-    int y = y_base + (use_high ? 1 : 0);
+    unsigned y_base = (threadIdx.x & 31) << 1;
+    unsigned y = y_base + (use_high ? 1 : 0);
 
     uint32_t mask = __ballot_sync(0xffffffffu, state.x | state.y | state.z | state.w);
-    int first_lane = __ffs(mask) - 1;
+    unsigned first_lane = __ffs(mask) - 1;
 
     y = __shfl_sync(0xffffffff, y, first_lane);
     x = __shfl_sync(0xffffffff, x, first_lane);
 
     return {x, y};
   } else {
-    int x = __ffsll(state) - 1;
-    int y = threadIdx.x;
+    unsigned x = __ffs(state) - 1;
+    unsigned y = threadIdx.x;
 
     uint32_t mask = __ballot_sync(0xffffffffu, state);
-    int first_lane = __ffs(mask) - 1;
+    unsigned first_lane = __ffs(mask) - 1;
 
     y = __shfl_sync(0xffffffff, y, first_lane);
     x = __shfl_sync(0xffffffff, x, first_lane);

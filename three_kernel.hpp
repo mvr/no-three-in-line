@@ -54,3 +54,4 @@ soft_branch(const typename Problem<W>::ArrayType &inputKnownOn,
 
 void init_lookup_tables_host();
 void init_relevant_endpoint_host();
+void init_relevant_endpoint_host_64();

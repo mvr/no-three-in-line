@@ -72,12 +72,7 @@ __global__ void force_vert_kernel(row_t<W> *knownOn, row_t<W> *knownOff) {
   board.knownOff.save(knownOff);
 }
 
-enum struct TestType {
-  Hori,
-  Vert,
-};
-
-template <unsigned N, unsigned W, TestType type>
+template <unsigned N, unsigned W, Axis type>
 void test_force(const board_t<W> &inputKnownOn, const board_t<W> &inputKnownOff,
                 const board_t<W> &expectedKnownOn, const board_t<W> &expectedKnownOff) {
   row_t<W> *d_knownOn, *d_knownOff;
@@ -89,7 +84,7 @@ void test_force(const board_t<W> &inputKnownOn, const board_t<W> &inputKnownOff,
   cudaMalloc((void**) &d_knownOff, W * sizeof(row_t<W>));
   cudaMemcpy(d_knownOff, inputKnownOff.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
 
-  if constexpr (type == TestType::Hori) {
+  if constexpr (type == Axis::Horizontal) {
     force_horiz_kernel<N, W><<<1, 64>>>(d_knownOn, d_knownOff);
   } else {
     force_vert_kernel<N, W><<<1, 32>>>(d_knownOn, d_knownOff);
@@ -105,7 +100,7 @@ void test_force(const board_t<W> &inputKnownOn, const board_t<W> &inputKnownOff,
   cudaFree(d_knownOff);
 }
 
-template <unsigned N, TestType type>
+template <unsigned N, Axis type>
 void test_force_both(const std::string &inputKnownOnRle,
                      const std::string &inputKnownOffRle,
                      const std::string &expectedKnownOnRle,
@@ -117,15 +112,15 @@ void test_force_both(const std::string &inputKnownOnRle,
 }
 
 TEST(ThreeBoard, ForceHoriVert) {
-  test_force_both<4, TestType::Hori>("2o!", "!", "2o!", "2b2o!");
-  // test_force_both<5, TestType::Hori>("2o!", "!", "2o!", "2b3o!");
+  test_force_both<4, Axis::Horizontal>("2o!", "!", "2o!", "2b2o!");
+  test_force_both<5, Axis::Horizontal>("2o!", "!", "2o!", "2b3o!");
 
-  // test_force_both<4, TestType::Hori>("!", "2o!", "2b2o!", "2o!");
+  test_force_both<4, Axis::Horizontal>("!", "2o!", "2b2o!", "2o!");
 
-  // test_force_both<4, TestType::Vert>("o$o!", "!", "o$o!", "2$o$o!");
-  // test_force_both<5, TestType::Vert>("o$o!", "!", "o$o!", "2$o$o$o!");
+  test_force_both<4, Axis::Vertical>("o$o!", "!", "o$o!", "2$o$o!");
+  test_force_both<5, Axis::Vertical>("o$o!", "!", "o$o!", "2$o$o$o!");
 
-  // test_force_both<4, TestType::Vert>("!", "o$o!", "2$o$o!", "o$o!");
+  test_force_both<4, Axis::Vertical>("!", "o$o!", "2$o$o!", "o$o!");
 }
 
 
@@ -206,6 +201,11 @@ void test_consistent_both(const std::string &inputKnownOnRle, bool expectedConsi
 }
 
 TEST(ThreeBoard, Consistent) {
+  test_consistent_both<4>("b2o$o2bo$b2o$o2bo!", true);
+  test_consistent_both<4>("obo$bobo$bobo$obo!", true);
+  test_consistent_both<4>("o2bo$b2o$o2bo$b2o!", true);
+  test_consistent_both<4>("bobo$obo$obo$bobo!", true);
+
   test_consistent_both<10>("o4bo$2bobo$5bobo$bo7bo$2b2o$7bobo$o7bo$bo4bo$3bo4bo$4bobo!", true);
   test_consistent_both<10>("o4bo$3bo2bo$2bo5bo$2bobo$7b2o$6bo2bo$o8bo$bobo$bo5bo$4b2o!", true);
 }

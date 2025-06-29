@@ -36,7 +36,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
       }
     }
   }
-  
+
   row_t remaining = ~line_knownOn & ~line_knownOff & (((row_t)1 << N) - 1);
 
   unsigned on_count;
@@ -142,6 +142,7 @@ int solve_main() {
       resolve_outcome<W>(outcome, stack);
     }
   }
+
   return 0;
 }
 
