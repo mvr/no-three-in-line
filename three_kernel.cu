@@ -29,6 +29,7 @@ __global__ void work_kernel(unsigned problem_count, Problem<W> *problems, Outcom
     return;
 
   Problem<W> &problem = problems[problem_idx];
+  Outcome<W> &outcome = outcomes[problem_idx];
   BitBoard<W> seed = BitBoard<W>::load(problem.seed.data());
 
   ThreeBoard<N, W> board;
@@ -39,7 +40,13 @@ __global__ void work_kernel(unsigned problem_count, Problem<W> *problems, Outcom
   board.propagate();
   board.soft_branch_all();
 
-  Outcome<W> &outcome = outcomes[problem_idx];
+  if (board.is_canonical_orientation() == LexStatus::Greater) {
+    if ((threadIdx.x & 31) == 0) {
+      outcome.consistent = false;
+    }
+    return;
+  }
+
   board.known_on.save(outcome.known_on.data());
   board.known_off.save(outcome.known_off.data());
 

@@ -20,6 +20,7 @@ struct ThreeBoard {
 
   _DI_ bool consistent() const;
   _DI_ unsigned unknown_pop() const;
+  _DI_ LexStatus is_canonical_orientation() const;
 
   _DI_ ThreeBoard<N, W> force_orthogonal_horiz() const;
   _DI_ ThreeBoard<N, W> force_orthogonal_vert() const;
@@ -115,6 +116,105 @@ _DI_ bool ThreeBoard<N, W>::consistent() const {
 template <unsigned N, unsigned W>
 _DI_ unsigned ThreeBoard<N, W>::unknown_pop() const {
   return N*N - (known_on | known_off).pop();
+}
+
+template<unsigned W>
+_DI_ LexStatus compare_with_unknowns(const BitBoard<W> a_on, const BitBoard<W> a_off,
+                                     const BitBoard<W> b_on, const BitBoard<W> b_off) {
+  // We need to find the first differing bit position where:
+  // - Both are known (not unknown)
+  // - They differ in value
+
+  BitBoard<W> a_unknown = ~(a_on | a_off);
+  BitBoard<W> b_unknown = ~(b_on | b_off);
+
+  BitBoard<W> both_known = ~(a_unknown | b_unknown);
+  BitBoard<W> diff = (a_on ^ b_on) & both_known;
+
+  if (diff.empty()) {
+    // Check if any unknowns exist that could change the comparison
+    BitBoard<W> critical_unknowns = a_unknown | b_unknown;
+    return critical_unknowns.empty() ? LexStatus::Equal : LexStatus::Unknown;
+  }
+
+  auto [x, y] = diff.first_on();
+
+  if (a_on.get(x, y)) {
+    // a = 1, b = 0 at first difference
+    // But we need to check if there's an earlier unknown that could flip this
+
+    BitBoard<W> before_mask = BitBoard<W>::positions_before(x, y);
+
+    BitBoard<W> critical_before = before_mask & (
+        (a_unknown & b_on) |  // a unknown, b = 1 (could make a < b)
+        (a_off & b_unknown)   // a = 0, b unknown (could make a < b)
+    );
+
+    return critical_before.empty() ? LexStatus::Greater : LexStatus::Unknown;
+  } else {
+    // a = 0, b = 1 at first difference
+
+    BitBoard<W> before_mask = BitBoard<W>::positions_before(x, y);
+    BitBoard<W> critical_before = before_mask & (
+        (a_unknown & b_off) |  // a unknown, b = 0 (could make a > b)
+        (a_on & b_unknown)     // a = 1, b unknown (could make a > b)
+    );
+
+    return critical_before.empty() ? LexStatus::Less : LexStatus::Unknown;
+  }
+}
+
+template <unsigned N, unsigned W>
+_DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation() const {
+  bool any_unknown = false;
+  LexStatus order;
+
+  BitBoard<W> flip_v_on = known_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> flip_v_off = known_off.flip_vertical().rotate_torus(0, N);
+  order = compare_with_unknowns(known_on, known_off, flip_v_on, flip_v_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  BitBoard<W> flip_h_on = known_on.flip_horizontal().rotate_torus(N, 0);
+  BitBoard<W> flip_h_off = known_off.flip_horizontal().rotate_torus(N, 0);
+  order = compare_with_unknowns(known_on, known_off, flip_h_on, flip_h_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  BitBoard<W> rot180_on = flip_h_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> rot180_off = flip_h_off.flip_vertical().rotate_torus(0, N);
+  order = compare_with_unknowns(known_on, known_off, rot180_on, rot180_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  BitBoard<W> diag_on = known_on.flip_diagonal();
+  BitBoard<W> diag_off = known_off.flip_diagonal();
+  order = compare_with_unknowns(known_on, known_off, diag_on, diag_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  BitBoard<W> rot90_on = diag_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> rot90_off = diag_off.flip_vertical().rotate_torus(0, N);
+  order = compare_with_unknowns(known_on, known_off, rot90_on, rot90_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  BitBoard<W> rot270_on = diag_on.flip_horizontal().rotate_torus(N, 0);
+  BitBoard<W> rot270_off = diag_off.flip_horizontal().rotate_torus(N, 0);
+  order = compare_with_unknowns(known_on, known_off, rot270_on, rot270_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  BitBoard<W> anti_diag_on = rot270_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> anti_diag_off = rot270_off.flip_vertical().rotate_torus(0, N);
+  order = compare_with_unknowns(known_on, known_off, anti_diag_on, anti_diag_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  if (any_unknown)
+    return LexStatus::Unknown;
+
+  return LexStatus::Less;
 }
 
 template <unsigned N, unsigned W>

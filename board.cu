@@ -34,6 +34,7 @@ struct BitBoard {
   _DI_ void save(row_t *data) const;
 
   _DI_ bool operator==(BitBoard other) const { return (*this ^ other).empty(); }
+  _DI_ bool operator<(BitBoard other) const;
 
   _DI_ BitBoard operator~() const {
     if constexpr (W == 64) {
@@ -102,6 +103,9 @@ struct BitBoard {
 
   _DI_ cuda::std::pair<int, int> first_on() const;
 
+  _DI_ static BitBoard<W> positions_before(int x, int y);
+  _DI_ static BitBoard<W> positions_before(cuda::std::pair<int, int> cell) { return positions_before(cell.first, cell.second); }
+
   _DI_ bool empty() const;
   _DI_ int pop() const;
 
@@ -117,6 +121,11 @@ struct BitBoard {
   _DI_ BitBoard<W> flip_vertical() const;
   _DI_ BitBoard<W> flip_diagonal() const;
   _DI_ BitBoard<W> flip_anti_diagonal() const;
+
+  _DI_ bool is_canonical() const;
+  
+  template<unsigned N>
+  _DI_ bool is_canonical_subsquare() const;
 };
 
 template<unsigned W>
@@ -264,6 +273,39 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
 }
 
 template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::positions_before(int x, int y) {
+  BitBoard<W> result;
+
+  if constexpr (W == 64) {
+    uint32_t full_mask = 0xffffffff;
+
+    uint32_t row_mask_low = (x < 32) ? ((1u << x) - 1) : full_mask;
+    uint32_t row_mask_high = (x < 32) ? 0 : ((1u << (x - 32)) - 1);
+
+    int my_row = threadIdx.x & 31;
+    bool before_row = (my_row * 2 < y);
+    bool at_row_even = (my_row * 2 == y);
+    bool at_row_odd = (my_row * 2 + 1 == y);
+
+    result.state.x = before_row ? full_mask : (at_row_even ? row_mask_low : 0);
+    result.state.y = before_row ? full_mask : (at_row_even ? row_mask_high : 0);
+    result.state.z = (before_row || at_row_even) ? full_mask : (at_row_odd ? row_mask_low : 0);
+    result.state.w = (before_row || at_row_even) ? full_mask : (at_row_odd ? row_mask_high : 0);
+  } else {
+    int my_row = threadIdx.x & 31;
+    if (my_row < y) {
+      result.state = 0xffffffff;
+    } else if (my_row == y) {
+      result.state = (x == 0) ? 0 : (1u << x) - 1;
+    } else {
+      result.state = 0;
+    }
+  }
+
+  return result;
+}
+
+template<unsigned W>
 _DI_ bool BitBoard<W>::empty() const {
   if constexpr (W == 64) {
     return __ballot_sync(0xffffffff, state.x | state.y | state.z | state.w) == 0;
@@ -281,6 +323,62 @@ _DI_ int BitBoard<W>::pop() const {
     val = __popc(state);
   }
   return __reduce_add_sync(0xffffffff, val);
+}
+
+
+template<unsigned W>
+_DI_ bool BitBoard<W>::operator<(BitBoard other) const {
+  if constexpr (W == 64) {
+    uint32_t x_lt = __ballot_sync(0xffffffff, state.x < other.state.x);
+    uint32_t x_gt = __ballot_sync(0xffffffff, state.x > other.state.x);
+    uint32_t x_diff = x_lt | x_gt;
+    
+    if (x_diff) {
+      int first_diff = __ffs(x_diff) - 1;
+      return __shfl_sync(0xffffffff, state.x < other.state.x, first_diff);
+    }
+    
+    uint32_t y_lt = __ballot_sync(0xffffffff, state.y < other.state.y);
+    uint32_t y_gt = __ballot_sync(0xffffffff, state.y > other.state.y);
+    uint32_t y_diff = y_lt | y_gt;
+    
+    if (y_diff) {
+      int first_diff = __ffs(y_diff) - 1;
+      return __shfl_sync(0xffffffff, state.y < other.state.y, first_diff);
+    }
+    
+    uint32_t z_lt = __ballot_sync(0xffffffff, state.z < other.state.z);
+    uint32_t z_gt = __ballot_sync(0xffffffff, state.z > other.state.z);
+    uint32_t z_diff = z_lt | z_gt;
+    
+    if (z_diff) {
+      int first_diff = __ffs(z_diff) - 1;
+      return __shfl_sync(0xffffffff, state.z < other.state.z, first_diff);
+    }
+    
+    uint32_t w_lt = __ballot_sync(0xffffffff, state.w < other.state.w);
+    uint32_t w_gt = __ballot_sync(0xffffffff, state.w > other.state.w);
+    uint32_t w_diff = w_lt | w_gt;
+    
+    if (w_diff) {
+      int first_diff = __ffs(w_diff) - 1;
+      return __shfl_sync(0xffffffff, state.w < other.state.w, first_diff);
+    }
+    
+    return false;
+  } else {
+
+    uint32_t lt = __ballot_sync(0xffffffff, state < other.state);
+    uint32_t gt = __ballot_sync(0xffffffff, state > other.state);
+    uint32_t diff = lt | gt;
+    
+    if (diff) {
+      int first_diff = __ffs(diff) - 1;
+      return __shfl_sync(0xffffffff, state < other.state, first_diff);
+    }
+    
+    return false;
+  }
 }
 
 template<unsigned W>
@@ -474,4 +572,59 @@ _DI_ BitBoard<W> BitBoard<W>::rotate_270() const {
 template<unsigned W>
 _DI_ BitBoard<W> BitBoard<W>::flip_anti_diagonal() const {
   return rotate_180().flip_diagonal();
+}
+
+template<unsigned W>
+_DI_ bool BitBoard<W>::is_canonical() const {
+  BitBoard<W> flip_v = flip_vertical();
+  if (flip_v < *this) return false;
+
+  BitBoard<W> flip_h = flip_horizontal();
+  if (flip_h < *this) return false;
+
+  BitBoard<W> rot180 = flip_h.flip_vertical();
+  if (rot180 < *this) return false;
+  
+  // Compute expensive diagonal flip only once
+  BitBoard<W> diag = flip_diagonal();
+  if (diag < *this) return false;
+  
+  BitBoard<W> rot90 = diag.flip_vertical();
+  if (rot90 < *this) return false;
+  
+  BitBoard<W> rot270 = diag.flip_horizontal();
+  if (rot270 < *this) return false;
+  
+  BitBoard<W> anti_diag = rot270.flip_vertical();
+  if (anti_diag < *this) return false;
+  
+  return true;
+}
+
+template <unsigned W>
+template <unsigned N>
+_DI_ bool BitBoard<W>::is_canonical_subsquare<N>() const {
+  BitBoard<W> flip_v = flip_vertical().rotate_torus(0, N);
+  if (flip_v < *this) return false;
+
+  BitBoard<W> flip_h = flip_horizontal().rotate_torus(N, 0);
+  if (flip_h < *this) return false;
+
+  BitBoard<W> rot180 = flip_h.flip_vertical().rotate_torus(0, N);
+  if (rot180 < *this) return false;
+  
+  // Compute expensive diagonal flip once
+  BitBoard<W> diag = flip_diagonal();
+  if (diag < *this) return false;
+  
+  BitBoard<W> rot90 = diag.flip_vertical().rotate_torus(0, N);
+  if (rot90 < *this) return false;
+  
+  BitBoard<W> rot270 = diag.flip_horizontal().rotate_torus(N, 0);
+  if (rot270 < *this) return false;
+  
+  BitBoard<W> anti_diag = rot270.flip_vertical().rotate_torus(0, N);
+  if (anti_diag < *this) return false;
+  
+  return true;
 }

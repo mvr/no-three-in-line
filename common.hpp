@@ -10,6 +10,13 @@ enum struct Axis {
   Horizontal,
 };
 
+enum class LexStatus {
+  Less,
+  Greater,
+  Equal,
+  Unknown
+};
+
 // an inlined host function:
 #define _HI_ __attribute__((always_inline)) inline
 
