@@ -144,42 +144,42 @@ std::pair<std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint3
           std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>> 
 parse_rle_history(const std::string &rle) {
   using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
-  ArrayType knownOn = {};
-  ArrayType knownOff = {};
+  ArrayType known_on = {};
+  ArrayType known_off = {};
   generic_parse_rle<ArrayType>(rle, [&](ArrayType &result, char ch, int x, int y) -> void {
     if (ch == 'A') {
       if constexpr (W == 64) {
-        knownOn[y] |= (1ULL << x);
+        known_on[y] |= (1ULL << x);
       } else {
-        knownOn[y] |= (1U << x);
+        known_on[y] |= (1U << x);
       }
     }
     if (ch == 'D') {
       if constexpr (W == 64) {
-        knownOff[y] |= (1ULL << x);
+        known_off[y] |= (1ULL << x);
       } else {
-        knownOff[y] |= (1U << x);
+        known_off[y] |= (1U << x);
       }
     }
   });
-  return {knownOn, knownOff};
+  return {known_on, known_off};
 }
 
 template<unsigned N, unsigned W>
-std::string to_rle_history(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &knownOn, 
-                           const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &knownOff) {
+std::string to_rle_history(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &known_on,
+                           const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &known_off) {
   return generic_to_rle<N>([&](int x, int y) -> char {
-    bool isKnownOn, isKnownOff;
+    bool is_known_on, is_known_off;
     if constexpr (W == 64) {
-      isKnownOn = knownOn[y] & (1ULL << x);
-      isKnownOff = knownOff[y] & (1ULL << x);
+      is_known_on = known_on[y] & (1ULL << x);
+      is_known_off = known_off[y] & (1ULL << x);
     } else {
-      isKnownOn = knownOn[y] & (1U << x);
-      isKnownOff = knownOff[y] & (1U << x);
+      is_known_on = known_on[y] & (1U << x);
+      is_known_off = known_off[y] & (1U << x);
     }
-    if(isKnownOn && isKnownOff) return 'F';
-    if(isKnownOn) return 'A';
-    if(isKnownOff) return 'D';
+    if(is_known_on && is_known_off) return 'F';
+    if(is_known_on) return 'A';
+    if(is_known_off) return 'D';
     return '.';
   });
 }

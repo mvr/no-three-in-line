@@ -146,16 +146,16 @@ _DI_ typename BitBoard<W>::row_t BitBoard<W>::row(int y) const {
     int src = (y & 63) >> 1;
 
     if (y & 1) {
-      uint32_t lo = __shfl_sync(0xffffffffu, state.z, src);
-      uint32_t hi = __shfl_sync(0xffffffffu, state.w, src);
+      uint32_t lo = __shfl_sync(0xffffffff, state.z, src);
+      uint32_t hi = __shfl_sync(0xffffffff, state.w, src);
       return (uint64_t)hi << 32 | lo;
     } else {
-      uint32_t lo = __shfl_sync(0xffffffffu, state.x, src);
-      uint32_t hi = __shfl_sync(0xffffffffu, state.y, src);
+      uint32_t lo = __shfl_sync(0xffffffff, state.x, src);
+      uint32_t hi = __shfl_sync(0xffffffff, state.y, src);
       return (uint64_t)hi << 32 | lo;
     }
   } else {
-    return __shfl_sync(0xffffffffu, state, y);
+    return __shfl_sync(0xffffffff, state, y);
   }
 }
 
@@ -164,11 +164,11 @@ _DI_ typename BitBoard<W>::row_t BitBoard<W>::column(int x) const {
   if constexpr (W == 64) {
     uint32_t xs, zs;
     if(x < 32) {
-      xs = __ballot_sync(0xffffffffu, state.x & (1<<x));
-      zs = __ballot_sync(0xffffffffu, state.z & (1<<x));
+      xs = __ballot_sync(0xffffffff, state.x & (1<<x));
+      zs = __ballot_sync(0xffffffff, state.z & (1<<x));
     } else {
-      xs = __ballot_sync(0xffffffffu, state.y & (1<<(x-32)));
-      zs = __ballot_sync(0xffffffffu, state.w & (1<<(x-32)));
+      xs = __ballot_sync(0xffffffff, state.y & (1<<(x-32)));
+      zs = __ballot_sync(0xffffffff, state.w & (1<<(x-32)));
     }
 
     static const uint64_t B[] = {0x0000FFFF0000FFFF, 0x00FF00FF00FF00FF, 0x0F0F0F0F0F0F0F0F, 0x3333333333333333, 0x5555555555555555};
@@ -184,7 +184,7 @@ _DI_ typename BitBoard<W>::row_t BitBoard<W>::column(int x) const {
 
     return xsl | (zsl << 1);
   } else {
-    return __ballot_sync(0xffffffffu, state & (1<<x));
+    return __ballot_sync(0xffffffff, state & (1<<x));
   }
 }
 
@@ -200,15 +200,15 @@ _DI_ void BitBoard<W>::set(int x, int y) {
     bool should_act = (threadIdx.x & 31) == (y >> 1);
     unsigned int bit = 1u << (x & 31);
 
-    state.x |= bit & (should_act && !(y & 1) && !(x & 32) ? 0xFFFFFFFF : 0);
-    state.y |= bit & (should_act && !(y & 1) &&  (x & 32) ? 0xFFFFFFFF : 0);
-    state.z |= bit & (should_act &&  (y & 1) && !(x & 32) ? 0xFFFFFFFF : 0);
-    state.w |= bit & (should_act &&  (y & 1) &&  (x & 32) ? 0xFFFFFFFF : 0);
+    state.x |= bit & (should_act && !(y & 1) && !(x & 32) ? 0xffffffff : 0);
+    state.y |= bit & (should_act && !(y & 1) &&  (x & 32) ? 0xffffffff : 0);
+    state.z |= bit & (should_act &&  (y & 1) && !(x & 32) ? 0xffffffff : 0);
+    state.w |= bit & (should_act &&  (y & 1) &&  (x & 32) ? 0xffffffff : 0);
   } else {
     bool should_act = (threadIdx.x & 31) == y;
     unsigned int bit = 1u << (x & 31);
 
-    state |= bit & (should_act ? 0xFFFFFFFF : 0);
+    state |= bit & (should_act ? 0xffffffff : 0);
   }
 }
 
@@ -218,15 +218,15 @@ _DI_ void BitBoard<W>::erase(int x, int y) {
     bool should_act = (threadIdx.x & 31) == (y >> 1);
     unsigned int bit = 1u << (x & 31);
 
-    state.x &= ~(bit & (should_act && !(y & 1) && !(x & 32) ? 0xFFFFFFFF : 0));
-    state.y &= ~(bit & (should_act && !(y & 1) &&  (x & 32) ? 0xFFFFFFFF : 0));
-    state.z &= ~(bit & (should_act &&  (y & 1) && !(x & 32) ? 0xFFFFFFFF : 0));
-    state.w &= ~(bit & (should_act &&  (y & 1) &&  (x & 32) ? 0xFFFFFFFF : 0));
+    state.x &= ~(bit & (should_act && !(y & 1) && !(x & 32) ? 0xffffffff : 0));
+    state.y &= ~(bit & (should_act && !(y & 1) &&  (x & 32) ? 0xffffffff : 0));
+    state.z &= ~(bit & (should_act &&  (y & 1) && !(x & 32) ? 0xffffffff : 0));
+    state.w &= ~(bit & (should_act &&  (y & 1) &&  (x & 32) ? 0xffffffff : 0));
   } else {
     bool should_act = (threadIdx.x & 31) == y;
     unsigned int bit = 1u << (x & 31);
 
-    state &= ~(bit & (should_act ? 0xFFFFFFFF : 0));
+    state &= ~(bit & (should_act ? 0xffffffff : 0));
   }
 }
 
@@ -242,7 +242,7 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
     unsigned y_base = (threadIdx.x & 31) << 1;
     unsigned y = y_base + (use_high ? 1 : 0);
 
-    uint32_t mask = __ballot_sync(0xffffffffu, state.x | state.y | state.z | state.w);
+    uint32_t mask = __ballot_sync(0xffffffff, state.x | state.y | state.z | state.w);
     unsigned first_lane = __ffs(mask) - 1;
 
     y = __shfl_sync(0xffffffff, y, first_lane);
@@ -253,7 +253,7 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
     unsigned x = __ffs(state) - 1;
     unsigned y = threadIdx.x & 31;
 
-    uint32_t mask = __ballot_sync(0xffffffffu, state);
+    uint32_t mask = __ballot_sync(0xffffffff, state);
     unsigned first_lane = __ffs(mask) - 1;
 
     y = __shfl_sync(0xffffffff, y, first_lane);
@@ -266,9 +266,9 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
 template<unsigned W>
 _DI_ bool BitBoard<W>::empty() const {
   if constexpr (W == 64) {
-    return __ballot_sync(0xffffffffu, state.x | state.y | state.z | state.w) == 0;
+    return __ballot_sync(0xffffffff, state.x | state.y | state.z | state.w) == 0;
   } else {
-    return __ballot_sync(0xffffffffu, state) == 0;
+    return __ballot_sync(0xffffffff, state) == 0;
   }
 }
 
@@ -280,9 +280,7 @@ _DI_ int BitBoard<W>::pop() const {
   } else {
     val = __popc(state);
   }
-  for (int offset = 16; offset > 0; offset /= 2)
-    val += __shfl_down_sync(0xffffffff, val, offset);
-  return __shfl_sync(0xffffffff, val, 0);
+  return __reduce_add_sync(0xffffffff, val);
 }
 
 template<unsigned W>
@@ -298,10 +296,10 @@ _DI_ BitBoard<W> BitBoard<W>::rotate_torus(int rh, int rv) const {
       d.w = (rv & 1) ? t.y : t.w;
       int upperthread = (((-rv) >> 1) + threadIdx.x) & 31;
       int lowerthread = (((-rv + 1) >> 1) + threadIdx.x) & 31;
-      t.x = __shfl_sync(0xffffffffu, d.x, upperthread);
-      t.y = __shfl_sync(0xffffffffu, d.y, upperthread);
-      t.z = __shfl_sync(0xffffffffu, d.z, lowerthread);
-      t.w = __shfl_sync(0xffffffffu, d.w, lowerthread);
+      t.x = __shfl_sync(0xffffffff, d.x, upperthread);
+      t.y = __shfl_sync(0xffffffff, d.y, upperthread);
+      t.z = __shfl_sync(0xffffffff, d.z, lowerthread);
+      t.w = __shfl_sync(0xffffffff, d.w, lowerthread);
     }
 
     if (rh & 63) {
@@ -322,7 +320,7 @@ _DI_ BitBoard<W> BitBoard<W>::rotate_torus(int rh, int rv) const {
     uint32_t t = state;
     if (rv & 31) {
       int otherthread = ((-rv) + threadIdx.x) & 31;
-      t = __shfl_sync(0xffffffffu, t, otherthread);
+      t = __shfl_sync(0xffffffff, t, otherthread);
     }
     if (rh & 31) {
       int sa = rh & 31;
@@ -359,14 +357,14 @@ _DI_ BitBoard<W> BitBoard<W>::flip_vertical() const {
     int my_row = threadIdx.x & 31;
     int src_row = 31 - my_row;
     
-    result.state.x = __shfl_sync(0xffffffffu, state.z, src_row);
-    result.state.y = __shfl_sync(0xffffffffu, state.w, src_row);
-    result.state.z = __shfl_sync(0xffffffffu, state.x, src_row);
-    result.state.w = __shfl_sync(0xffffffffu, state.y, src_row);
+    result.state.x = __shfl_sync(0xffffffff, state.z, src_row);
+    result.state.y = __shfl_sync(0xffffffff, state.w, src_row);
+    result.state.z = __shfl_sync(0xffffffff, state.x, src_row);
+    result.state.w = __shfl_sync(0xffffffff, state.y, src_row);
   } else {
     int my_row = threadIdx.x & 31;
     int src_row = 31 - my_row;
-    result.state = __shfl_sync(0xffffffffu, state, src_row);
+    result.state = __shfl_sync(0xffffffff, state, src_row);
   }
   return result;
 }
@@ -380,7 +378,7 @@ _DI_ uint32_t shuffle_round(uint32_t a, uint32_t mask, unsigned shift) {
     lane_shift = shift;
   }
 
-  uint32_t b = __shfl_xor_sync(0xffffffffu, a, lane_shift);
+  uint32_t b = __shfl_xor_sync(0xffffffff, a, lane_shift);
 
   uint32_t c;
   if ((threadIdx.x & lane_shift) == 0) {
@@ -402,10 +400,10 @@ _DI_ BitBoard<W> BitBoard<W>::flip_diagonal() const {
 
     // The first round rearranges the uint4:
     {
-      uint32_t other_x = __shfl_xor_sync(0xffffffffu, state.x, 16);
-      uint32_t other_y = __shfl_xor_sync(0xffffffffu, state.y, 16);
-      uint32_t other_z = __shfl_xor_sync(0xffffffffu, state.z, 16);
-      uint32_t other_w = __shfl_xor_sync(0xffffffffu, state.w, 16);
+      uint32_t other_x = __shfl_xor_sync(0xffffffff, state.x, 16);
+      uint32_t other_y = __shfl_xor_sync(0xffffffff, state.y, 16);
+      uint32_t other_z = __shfl_xor_sync(0xffffffff, state.z, 16);
+      uint32_t other_w = __shfl_xor_sync(0xffffffff, state.w, 16);
 
       if((threadIdx.x & 16) == 0) {
         result.y = other_x;

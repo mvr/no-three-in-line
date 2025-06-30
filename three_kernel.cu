@@ -32,16 +32,16 @@ __global__ void work_kernel(unsigned problem_count, Problem<W> *problems, Outcom
   BitBoard<W> seed = BitBoard<W>::load(problem.seed.data());
 
   ThreeBoard<N, W> board;
-  board.knownOn = BitBoard<W>::load(problem.knownOn.data()) | seed;
-  board.knownOff = BitBoard<W>::load(problem.knownOff.data());
+  board.known_on = BitBoard<W>::load(problem.known_on.data()) | seed;
+  board.known_off = BitBoard<W>::load(problem.known_off.data());
 
   board.eliminate_all_lines(seed);
   board.propagate();
   board.soft_branch_all();
 
   Outcome<W> &outcome = outcomes[problem_idx];
-  board.knownOn.save(outcome.knownOn.data());
-  board.knownOff.save(outcome.knownOff.data());
+  board.known_on.save(outcome.known_on.data());
+  board.known_off.save(outcome.known_off.data());
 
   bool consistent = board.consistent();
 
@@ -54,8 +54,8 @@ __global__ void work_kernel(unsigned problem_count, Problem<W> *problems, Outcom
     auto [row, _] = board.most_constrained_row();
 
     if((threadIdx.x & 31) == 0) {
-      outcome.unknownPop = unknown_pop;
-      outcome.solved = outcome.unknownPop == 0;
+      outcome.unknown_pop = unknown_pop;
+      outcome.solved = outcome.unknown_pop == 0;
       outcome.axis = Axis::Horizontal;
       outcome.ix = row;
     }

@@ -6,13 +6,13 @@
 
 template <unsigned N, unsigned W>
 struct ThreeBoard {
-  BitBoard<W> knownOn;
-  BitBoard<W> knownOff;
+  BitBoard<W> known_on;
+  BitBoard<W> known_off;
 
-  _DI_ ThreeBoard() : knownOn{}, knownOff{} {}
-  _DI_ explicit ThreeBoard(BitBoard<W> knownOn, BitBoard<W> knownOff) : knownOn{knownOn}, knownOff{knownOff} {}
+  _DI_ ThreeBoard() : known_on{}, known_off{} {}
+  _DI_ explicit ThreeBoard(BitBoard<W> known_on, BitBoard<W> known_off) : known_on{known_on}, known_off{known_off} {}
 
-  _DI_ bool operator==(ThreeBoard<N, W> other) const { return (knownOn == other.knownOn) && (knownOff == other.knownOff); }
+  _DI_ bool operator==(ThreeBoard<N, W> other) const { return (known_on == other.known_on) && (known_off == other.known_off); }
   _DI_ bool operator!=(ThreeBoard<N, W> other) const { return !(*this == other); }
 
   static _DI_ BitBoard<W> bounds();
@@ -28,7 +28,7 @@ struct ThreeBoard {
   _DI_ BitBoard<W> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<W> seed);
-  _DI_ void eliminate_all_lines() { eliminate_all_lines(knownOn); }
+  _DI_ void eliminate_all_lines() { eliminate_all_lines(known_on); }
   _DI_ void propagate();
 
   template<Axis d>
@@ -109,12 +109,12 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, u
 
 template <unsigned N, unsigned W>
 _DI_ bool ThreeBoard<N, W>::consistent() const {
-  return (knownOn & knownOff).empty();
+  return (known_on & known_off).empty();
 }
 
 template <unsigned N, unsigned W>
 _DI_ unsigned ThreeBoard<N, W>::unknown_pop() const {
-  return N*N - (knownOn | knownOff).pop();
+  return N*N - (known_on | known_off).pop();
 }
 
 template <unsigned N, unsigned W>
@@ -122,68 +122,68 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
   ThreeBoard<N, W> result = *this;
 
   if constexpr (W == 64) {
-    int on_pop_x = __popc(knownOn.state.x) + __popc(knownOn.state.y);
+    int on_pop_x = __popc(known_on.state.x) + __popc(known_on.state.y);
     if(on_pop_x == 2) {
-      result.knownOff.state.x = ~knownOn.state.x;
-      result.knownOff.state.y = ~knownOn.state.y;
+      result.known_off.state.x = ~known_on.state.x;
+      result.known_off.state.y = ~known_on.state.y;
     }
     if(on_pop_x > 2) {
-      result.knownOn = BitBoard<W>::solid();
-      result.knownOff = BitBoard<W>::solid();
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
     }
 
-    int on_pop_z = __popc(knownOn.state.z) + __popc(knownOn.state.w);
+    int on_pop_z = __popc(known_on.state.z) + __popc(known_on.state.w);
     if(on_pop_z == 2) {
-      result.knownOff.state.z = ~knownOn.state.z;
-      result.knownOff.state.w = ~knownOn.state.w;
+      result.known_off.state.z = ~known_on.state.z;
+      result.known_off.state.w = ~known_on.state.w;
     }
     if(on_pop_z > 2) {
-      result.knownOn = BitBoard<W>::solid();
-      result.knownOff = BitBoard<W>::solid();
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
     }
 
-    int off_pop_x = __popc(knownOff.state.x) + __popc(knownOff.state.y);
+    int off_pop_x = __popc(known_off.state.x) + __popc(known_off.state.y);
     if(off_pop_x == N - 2) {
-      result.knownOn.state.x = ~knownOff.state.x;
-      result.knownOn.state.y = ~knownOff.state.y;
+      result.known_on.state.x = ~known_off.state.x;
+      result.known_on.state.y = ~known_off.state.y;
     }
     if(off_pop_x > N - 2) {
-      result.knownOn = BitBoard<W>::solid();
-      result.knownOff = BitBoard<W>::solid();
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
     }
 
-    int off_pop_z = __popc(knownOff.state.z) + __popc(knownOff.state.w);
+    int off_pop_z = __popc(known_off.state.z) + __popc(known_off.state.w);
     if(off_pop_z == N - 2) {
-      result.knownOn.state.z = ~knownOff.state.z;
-      result.knownOn.state.w = ~knownOff.state.w;
+      result.known_on.state.z = ~known_off.state.z;
+      result.known_on.state.w = ~known_off.state.w;
     }
     if(off_pop_z > N - 2) {
-      result.knownOn = BitBoard<W>::solid();
-      result.knownOff = BitBoard<W>::solid();
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
     }
   } else {
-    int on_pop = __popc(knownOn.state);
+    int on_pop = __popc(known_on.state);
     if(on_pop == 2) {
-      result.knownOff.state = ~knownOn.state;
+      result.known_off.state = ~known_on.state;
     }
     if(on_pop > 2) {
-      result.knownOn = BitBoard<W>::solid();
-      result.knownOff = BitBoard<W>::solid();
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
     }
 
-    int off_pop = __popc(knownOff.state);
+    int off_pop = __popc(known_off.state);
     if(off_pop == N - 2) {
-      result.knownOn.state = ~knownOff.state;
+      result.known_on.state = ~known_off.state;
     }
     if(off_pop > N - 2) {
-      result.knownOn = BitBoard<W>::solid();
-      result.knownOff = BitBoard<W>::solid();
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
     }
   }
 
   const BitBoard<W> bds = ThreeBoard<N, W>::bounds();
-  result.knownOn &= bds;
-  result.knownOff &= bds;
+  result.known_on &= bds;
+  result.known_off &= bds;
 
   return result;
 }
@@ -231,66 +231,66 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
   ThreeBoard<N, W> result = *this;
 
   if constexpr (W == 64) {
-    const BinaryCount on_count_xz = count_vertically(knownOn.state.x) + count_vertically(knownOn.state.z);
+    const BinaryCount on_count_xz = count_vertically(known_on.state.x) + count_vertically(known_on.state.z);
     const uint32_t on_count_xz_eq_2 = ~on_count_xz.overflow & on_count_xz.bit1 & ~on_count_xz.bit0;
-    result.knownOff.state.x |= ~knownOn.state.x & on_count_xz_eq_2;
-    result.knownOff.state.z |= ~knownOn.state.z & on_count_xz_eq_2;
+    result.known_off.state.x |= ~known_on.state.x & on_count_xz_eq_2;
+    result.known_off.state.z |= ~known_on.state.z & on_count_xz_eq_2;
 
     const uint32_t on_count_xz_gt_2 = on_count_xz.overflow | (on_count_xz.bit1 & on_count_xz.bit0);
-    result.knownOn.state.x |= on_count_xz_gt_2;
-    result.knownOff.state.x |= on_count_xz_gt_2;
+    result.known_on.state.x |= on_count_xz_gt_2;
+    result.known_off.state.x |= on_count_xz_gt_2;
 
-    const BinaryCount on_count_yw = count_vertically(knownOn.state.y) + count_vertically(knownOn.state.w);
+    const BinaryCount on_count_yw = count_vertically(known_on.state.y) + count_vertically(known_on.state.w);
     const uint32_t on_count_yw_eq_2 = ~on_count_yw.overflow & on_count_yw.bit1 & ~on_count_yw.bit0;
-    result.knownOff.state.y |= ~knownOn.state.y & on_count_yw_eq_2;
-    result.knownOff.state.w |= ~knownOn.state.w & on_count_yw_eq_2;
+    result.known_off.state.y |= ~known_on.state.y & on_count_yw_eq_2;
+    result.known_off.state.w |= ~known_on.state.w & on_count_yw_eq_2;
 
     const uint32_t on_count_yw_gt_2 = on_count_yw.overflow | (on_count_yw.bit1 & on_count_yw.bit0);
-    result.knownOn.state.y |= on_count_yw_gt_2;
-    result.knownOff.state.y |= on_count_yw_gt_2;
+    result.known_on.state.y |= on_count_yw_gt_2;
+    result.known_off.state.y |= on_count_yw_gt_2;
 
-    BitBoard<W> notKnownOff = ~knownOff & ThreeBoard<N, W>::bounds();
+    BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
 
     const BinaryCount not_off_count_xz = count_vertically(notKnownOff.state.x) + count_vertically(notKnownOff.state.z);
     const uint32_t not_off_count_xz_eq_2 = ~not_off_count_xz.overflow & not_off_count_xz.bit1 & ~not_off_count_xz.bit0;
-    result.knownOn.state.x |= ~knownOff.state.x & not_off_count_xz_eq_2;
-    result.knownOn.state.z |= ~knownOff.state.z & not_off_count_xz_eq_2;
+    result.known_on.state.x |= ~known_off.state.x & not_off_count_xz_eq_2;
+    result.known_on.state.z |= ~known_off.state.z & not_off_count_xz_eq_2;
 
     const uint32_t not_off_count_xz_lt_2 = ~not_off_count_xz.overflow & ~not_off_count_xz.bit1;
-    result.knownOn.state.x |= not_off_count_xz_lt_2;
-    result.knownOff.state.x |= not_off_count_xz_lt_2;
+    result.known_on.state.x |= not_off_count_xz_lt_2;
+    result.known_off.state.x |= not_off_count_xz_lt_2;
 
     const BinaryCount not_off_count_yw = count_vertically(notKnownOff.state.y) + count_vertically(notKnownOff.state.w);
     const uint32_t not_off_count_yw_eq_2 = ~not_off_count_yw.overflow & not_off_count_yw.bit1 & ~not_off_count_yw.bit0;
-    result.knownOn.state.y |= ~knownOff.state.y & not_off_count_yw_eq_2;
-    result.knownOn.state.w |= ~knownOff.state.w & not_off_count_yw_eq_2;
+    result.known_on.state.y |= ~known_off.state.y & not_off_count_yw_eq_2;
+    result.known_on.state.w |= ~known_off.state.w & not_off_count_yw_eq_2;
 
     const uint32_t not_off_count_yw_lt_2 = ~not_off_count_yw.overflow & ~not_off_count_yw.bit1;
-    result.knownOn.state.y |= not_off_count_yw_lt_2;
-    result.knownOff.state.y |= not_off_count_yw_lt_2;
+    result.known_on.state.y |= not_off_count_yw_lt_2;
+    result.known_off.state.y |= not_off_count_yw_lt_2;
   } else {
-    const BinaryCount on_count = count_vertically(knownOn.state);
+    const BinaryCount on_count = count_vertically(known_on.state);
     const uint32_t on_count_eq_2 = ~on_count.overflow & on_count.bit1 & ~on_count.bit0;
-    result.knownOff.state |= ~knownOn.state & on_count_eq_2;
+    result.known_off.state |= ~known_on.state & on_count_eq_2;
 
     const uint32_t on_count_gt_2 = on_count.overflow | (on_count.bit1 & on_count.bit0);
-    result.knownOn.state |= on_count_gt_2;
-    result.knownOff.state |= on_count_gt_2;
+    result.known_on.state |= on_count_gt_2;
+    result.known_off.state |= on_count_gt_2;
 
-    BitBoard<W> notKnownOff = ~knownOff & ThreeBoard<N, W>::bounds();
+    BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
 
     const BinaryCount not_off_count = count_vertically(notKnownOff.state);
     const uint32_t not_off_count_eq_2 = ~not_off_count.overflow & not_off_count.bit1 & ~not_off_count.bit0;
-    result.knownOn.state |= ~knownOff.state & not_off_count_eq_2;
+    result.known_on.state |= ~known_off.state & not_off_count_eq_2;
 
     const uint32_t not_off_count_lt_2 = ~not_off_count.overflow & ~not_off_count.bit1;
-    result.knownOn.state |= not_off_count_lt_2;
-    result.knownOff.state |= not_off_count_lt_2;
+    result.known_on.state |= not_off_count_lt_2;
+    result.known_off.state |= not_off_count_lt_2;
   }
 
   const BitBoard<W> bds = ThreeBoard<N, W>::bounds();
-  result.knownOn &= bds;
-  result.knownOff &= bds;
+  result.known_on &= bds;
+  result.known_off &= bds;
 
   return result;
 }
@@ -369,14 +369,14 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
 template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
-  BitBoard<W> qs = knownOn & ThreeBoard<N, W>::relevant_endpoint(p);
+  BitBoard<W> qs = known_on & ThreeBoard<N, W>::relevant_endpoint(p);
   for (auto q = qs.first_on(); !qs.empty();
        qs.erase(q), q = qs.first_on()) {
-    knownOff |= eliminate_line(p, q);
+    known_off |= eliminate_line(p, q);
     if (!consistent())
       break;
   }
-  knownOff &= bounds();
+  known_off &= bounds();
 }
 
 template <unsigned N, unsigned W>
@@ -384,24 +384,24 @@ _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
   for (auto p = ps.first_on(); !ps.empty();
        ps.erase(p), p = ps.first_on()) {
-    BitBoard<W> qs = knownOn & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
+    BitBoard<W> qs = known_on & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
     for (auto q = qs.first_on(); !qs.empty();
          qs.erase(q), q = qs.first_on()) {
-      knownOff |= eliminate_line(p, q);
+      known_off |= eliminate_line(p, q);
       if (!consistent())
         break;
     }
     if (!consistent())
       break;
   }
-  knownOff &= bounds();
+  known_off &= bounds();
 }
 
 template <unsigned N, unsigned W>
 _DI_ void ThreeBoard<N, W>::propagate() {
   ThreeBoard<N, W> prev;
 
-  BitBoard<W> doneOns = knownOn;
+  BitBoard<W> doneOns = known_on;
 
   do {
     prev = *this;
@@ -414,28 +414,28 @@ _DI_ void ThreeBoard<N, W>::propagate() {
         return;
     } while(*this != prev2);
 
-    eliminate_all_lines(knownOn & ~doneOns);
-    doneOns = knownOn;
+    eliminate_all_lines(known_on & ~doneOns);
+    doneOns = known_on;
   } while (*this != prev);
 }
 
 template <unsigned N, unsigned W>
 template <Axis d>
 _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
-  auto row_knownOn = (d == Axis::Horizontal) ? knownOn.row(r) : knownOn.column(r);
-  auto row_knownOff = (d == Axis::Horizontal) ? knownOff.row(r) : knownOff.column(r);
+  auto row_known_on = (d == Axis::Horizontal) ? known_on.row(r) : known_on.column(r);
+  auto row_known_off = (d == Axis::Horizontal) ? known_off.row(r) : known_off.column(r);
   
-  unsigned on_count = (W == 64) ? __popcll(row_knownOn) : __popc(row_knownOn);
+  unsigned on_count = (W == 64) ? __popcll(row_known_on) : __popc(row_known_on);
   if(on_count >= 2) return;
 
-  unsigned off_count = (W == 64) ? __popcll(row_knownOff) : __popc(row_knownOff);
+  unsigned off_count = (W == 64) ? __popcll(row_known_off) : __popc(row_known_off);
   unsigned unknown_count = N - on_count - off_count;
   
   if (on_count == 1 && unknown_count > SOFT_BRANCH_1_THRESHOLD) return;
   if (on_count == 0 && unknown_count > SOFT_BRANCH_2_THRESHOLD) return;
 
   ThreeBoard<N, W> common(BitBoard<W>::solid(), BitBoard<W>::solid());
-  typename BitBoard<W>::row_t remaining = ~row_knownOn & ~row_knownOff & (((typename BitBoard<W>::row_t)1 << N) - 1);
+  typename BitBoard<W>::row_t remaining = ~row_known_on & ~row_known_off & (((typename BitBoard<W>::row_t)1 << N) - 1);
 
   auto make_cell = [&](unsigned c) {
     return (d == Axis::Horizontal) ? cuda::std::pair<unsigned, unsigned>{c, r} : cuda::std::pair<unsigned, unsigned>{r, c};
@@ -449,52 +449,52 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
     auto cell = make_cell(first_bit(remaining));
 
     ThreeBoard<N, W> subBoard = *this;
-    subBoard.knownOn.set(cell);
+    subBoard.known_on.set(cell);
     subBoard.eliminate_all_lines(cell);
     subBoard.propagate();
 
     if (!subBoard.consistent()) {
-      knownOff.set(cell);
+      known_off.set(cell);
       continue;
     }
 
     if(on_count == 1) {
-      common.knownOn &= subBoard.knownOn;
-      common.knownOff &= subBoard.knownOff;
+      common.known_on &= subBoard.known_on;
+      common.known_off &= subBoard.known_off;
       continue;
     }
 
-    auto row_knownOn2 = (d == Axis::Horizontal) ? subBoard.knownOn.row(r) : subBoard.knownOn.column(r);
-    auto row_knownOff2 = (d == Axis::Horizontal) ? subBoard.knownOff.row(r) : subBoard.knownOff.column(r);
+    auto row_known_on2 = (d == Axis::Horizontal) ? subBoard.known_on.row(r) : subBoard.known_on.column(r);
+    auto row_known_off2 = (d == Axis::Horizontal) ? subBoard.known_off.row(r) : subBoard.known_off.column(r);
     typename BitBoard<W>::row_t remaining2 =
       remaining &
-      ~row_knownOn2 & ~row_knownOff2 &
+      ~row_known_on2 & ~row_known_off2 &
       ~((typename BitBoard<W>::row_t)1 << first_bit(remaining)) &
       (((typename BitBoard<W>::row_t)1 << N) - 1);
 
     if (remaining2 == 0) {
-      common.knownOn &= subBoard.knownOn;
-      common.knownOff &= subBoard.knownOff;
+      common.known_on &= subBoard.known_on;
+      common.known_off &= subBoard.known_off;
     }
 
     for (; remaining2; remaining2 &= remaining2 - 1) {
       auto cell2 = make_cell(first_bit(remaining2));
       ThreeBoard<N, W> subBoard2 = subBoard;
-      subBoard2.knownOn.set(cell2);
+      subBoard2.known_on.set(cell2);
       subBoard2.eliminate_all_lines(cell2);
       subBoard2.propagate();
 
       if (!subBoard2.consistent()) {
-        subBoard.knownOff.set(cell2);
+        subBoard.known_off.set(cell2);
       } else {
-        common.knownOn &= subBoard2.knownOn;
-        common.knownOff &= subBoard2.knownOff;
+        common.known_on &= subBoard2.known_on;
+        common.known_off &= subBoard2.known_off;
       }
     }
   }
 
-  knownOn |= common.knownOn;
-  knownOff |= common.knownOff;
+  known_on |= common.known_on;
+  known_off |= common.known_off;
 }
 
 
@@ -515,14 +515,14 @@ ThreeBoard<N, W>::most_constrained_row() const {
   unsigned unknown;
 
   if constexpr (W == 64) {
-    BitBoard<W> known = knownOn | knownOff;
+    BitBoard<W> known = known_on | known_off;
     unsigned unknown_xy = N - __popc(known.state.x) - __popc(known.state.y);
     unsigned unknown_zw = N - __popc(known.state.z) - __popc(known.state.w);
 
-    if(knownOn.state.x == 0 && knownOn.state.y == 0)
+    if(known_on.state.x == 0 && known_on.state.y == 0)
       unknown_xy = unknown_xy * (unknown_xy - 1) / 2;
 
-    if(knownOn.state.z == 0 && knownOn.state.w == 0)
+    if(known_on.state.z == 0 && known_on.state.w == 0)
       unknown_zw = unknown_zw * (unknown_zw - 1) / 2;
 
     if ((threadIdx.x & 31) * 2 >= N || unknown_xy == 0)
@@ -538,10 +538,10 @@ ThreeBoard<N, W>::most_constrained_row() const {
       unknown = unknown_zw;
     }
   } else {
-    BitBoard<W> known = knownOn | knownOff;
+    BitBoard<W> known = known_on | known_off;
     unknown = N - __popc(known.state);
 
-    if(knownOn.state == 0)
+    if(known_on.state == 0)
       unknown = unknown * (unknown - 1) / 2;
 
     if ((threadIdx.x & 31) >= N || unknown == 0)
@@ -573,9 +573,9 @@ ThreeBoard<N, W>::most_constrained_col() const {
   unsigned min_unknown = std::numeric_limits<unsigned>::max();
 
   for (unsigned c = 0; c < N; c++) {
-    typename BitBoard<W>::row_t col_knownOn = knownOn.column(c);
-    typename BitBoard<W>::row_t col_knownOff = knownOff.column(c);
-    typename BitBoard<W>::row_t col_known = col_knownOn | col_knownOff;
+    typename BitBoard<W>::row_t col_known_on = known_on.column(c);
+    typename BitBoard<W>::row_t col_known_off = known_off.column(c);
+    typename BitBoard<W>::row_t col_known = col_known_on | col_known_off;
 
     unsigned unknown;
     if constexpr (W == 64) {
@@ -584,7 +584,7 @@ ThreeBoard<N, W>::most_constrained_col() const {
       unknown = N - __popc(col_known);
     }
 
-    if (col_knownOn == 0) {
+    if (col_known_on == 0) {
       unknown = unknown * (unknown - 1) / 2;
     }
 

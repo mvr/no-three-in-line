@@ -53,62 +53,62 @@ TEST(ThreeBoard, Bounds) {
 }
 
 template <unsigned N, unsigned W>
-__global__ void force_horiz_kernel(row_t<W> *knownOn, row_t<W> *knownOff) {
+__global__ void force_horiz_kernel(row_t<W> *known_on, row_t<W> *known_off) {
   ThreeBoard<N, W> board;
-  board.knownOn = BitBoard<W>::load(knownOn);
-  board.knownOff = BitBoard<W>::load(knownOff);
+  board.known_on = BitBoard<W>::load(known_on);
+  board.known_off = BitBoard<W>::load(known_off);
   board = board.force_orthogonal_horiz();
-  board.knownOn.save(knownOn);
-  board.knownOff.save(knownOff);
+  board.known_on.save(known_on);
+  board.known_off.save(known_off);
 }
 
 template <unsigned N, unsigned W>
-__global__ void force_vert_kernel(row_t<W> *knownOn, row_t<W> *knownOff) {
+__global__ void force_vert_kernel(row_t<W> *known_on, row_t<W> *known_off) {
   ThreeBoard<N, W> board;
-  board.knownOn = BitBoard<W>::load(knownOn);
-  board.knownOff = BitBoard<W>::load(knownOff);
+  board.known_on = BitBoard<W>::load(known_on);
+  board.known_off = BitBoard<W>::load(known_off);
   board = board.force_orthogonal_vert();
-  board.knownOn.save(knownOn);
-  board.knownOff.save(knownOff);
+  board.known_on.save(known_on);
+  board.known_off.save(known_off);
 }
 
 template <unsigned N, unsigned W, Axis type>
-void test_force(const board_t<W> &inputKnownOn, const board_t<W> &inputKnownOff,
-                const board_t<W> &expectedKnownOn, const board_t<W> &expectedKnownOff) {
-  row_t<W> *d_knownOn, *d_knownOff;
-  board_t<W> h_knownOn, h_knownOff;
+void test_force(const board_t<W> &input_known_on, const board_t<W> &input_known_off,
+                const board_t<W> &expected_known_on, const board_t<W> &expected_known_off) {
+  row_t<W> *d_known_on, *d_known_off;
+  board_t<W> h_known_on, h_known_off;
 
-  cudaMalloc((void**) &d_knownOn, W * sizeof(row_t<W>));
-  cudaMemcpy(d_knownOn, inputKnownOn.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
+  cudaMalloc((void**) &d_known_on, W * sizeof(row_t<W>));
+  cudaMemcpy(d_known_on, input_known_on.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
 
-  cudaMalloc((void**) &d_knownOff, W * sizeof(row_t<W>));
-  cudaMemcpy(d_knownOff, inputKnownOff.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
+  cudaMalloc((void**) &d_known_off, W * sizeof(row_t<W>));
+  cudaMemcpy(d_known_off, input_known_off.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
 
   if constexpr (type == Axis::Horizontal) {
-    force_horiz_kernel<N, W><<<1, 64>>>(d_knownOn, d_knownOff);
+    force_horiz_kernel<N, W><<<1, 64>>>(d_known_on, d_known_off);
   } else {
-    force_vert_kernel<N, W><<<1, 32>>>(d_knownOn, d_knownOff);
+    force_vert_kernel<N, W><<<1, 32>>>(d_known_on, d_known_off);
   }
 
-  cudaMemcpy(h_knownOn.data(), d_knownOn, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
-  cudaMemcpy(h_knownOff.data(), d_knownOff, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_known_on.data(), d_known_on, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_known_off.data(), d_known_off, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ((to_rle<N, W>(expectedKnownOn)), (to_rle<N, W>(h_knownOn)));
-  EXPECT_EQ((to_rle<N, W>(expectedKnownOff)), (to_rle<N, W>(h_knownOff)));
+  EXPECT_EQ((to_rle<N, W>(expected_known_on)), (to_rle<N, W>(h_known_on)));
+  EXPECT_EQ((to_rle<N, W>(expected_known_off)), (to_rle<N, W>(h_known_off)));
 
-  cudaFree(d_knownOn);
-  cudaFree(d_knownOff);
+  cudaFree(d_known_on);
+  cudaFree(d_known_off);
 }
 
 template <unsigned N, Axis type>
-void test_force_both(const std::string &inputKnownOnRle,
-                     const std::string &inputKnownOffRle,
-                     const std::string &expectedKnownOnRle,
-                     const std::string &expectedKnownOffRle) {
-  test_force<N, 32, type>(parse_rle<32>(inputKnownOnRle), parse_rle<32>(inputKnownOffRle), 
-                          parse_rle<32>(expectedKnownOnRle), parse_rle<32>(expectedKnownOffRle));
-  test_force<N, 64, type>(parse_rle<64>(inputKnownOnRle), parse_rle<64>(inputKnownOffRle), 
-                          parse_rle<64>(expectedKnownOnRle), parse_rle<64>(expectedKnownOffRle));
+void test_force_both(const std::string &input_known_on_rle,
+                     const std::string &input_known_off_rle,
+                     const std::string &expected_known_on_rle,
+                     const std::string &expected_known_off_rle) {
+  test_force<N, 32, type>(parse_rle<32>(input_known_on_rle), parse_rle<32>(input_known_off_rle),
+                          parse_rle<32>(expected_known_on_rle), parse_rle<32>(expected_known_off_rle));
+  test_force<N, 64, type>(parse_rle<64>(input_known_on_rle), parse_rle<64>(input_known_off_rle),
+                          parse_rle<64>(expected_known_on_rle), parse_rle<64>(expected_known_off_rle));
 }
 
 TEST(ThreeBoard, ForceHoriVert) {
@@ -168,7 +168,7 @@ TEST(ThreeBoard, ForceHoriVert) {
 template <unsigned N, unsigned W>
 __global__ void consistent_kernel(row_t<W> *a, bool *result) {
   ThreeBoard<N, W> board;
-  board.knownOn = BitBoard<W>::load(a);
+  board.known_on = BitBoard<W>::load(a);
   board.eliminate_all_lines();
   board.propagate();
   board.soft_branch_all();
@@ -176,28 +176,28 @@ __global__ void consistent_kernel(row_t<W> *a, bool *result) {
 }
 
 template <unsigned N, unsigned W>
-void test_consistent(const board_t<W> &inputKnownOn, bool expectedConsistent) {
+void test_consistent(const board_t<W> &input_known_on, bool expected_consistent) {
   row_t<W> *d_a;
   bool *d_result;
 
   cudaMalloc((void**) &d_a, W * sizeof(row_t<W>));
-  cudaMemcpy(d_a, inputKnownOn.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_a, input_known_on.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
   cudaMalloc((void**) &d_result, sizeof(bool));
 
   consistent_kernel<N, W><<<1, 32>>>(d_a, d_result);
   bool consistent;
   cudaMemcpy(&consistent, d_result, sizeof(bool), cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ(expectedConsistent, consistent);
+  EXPECT_EQ(expected_consistent, consistent);
   
   cudaFree(d_a);
   cudaFree(d_result);
 }
 
 template <unsigned N>
-void test_consistent_both(const std::string &inputKnownOnRle, bool expectedConsistent) {
-  test_consistent<N, 32>(parse_rle<32>(inputKnownOnRle), expectedConsistent);
-  test_consistent<N, 64>(parse_rle<64>(inputKnownOnRle), expectedConsistent);
+void test_consistent_both(const std::string &input_known_on_rle, bool expected_consistent) {
+  test_consistent<N, 32>(parse_rle<32>(input_known_on_rle), expected_consistent);
+  test_consistent<N, 64>(parse_rle<64>(input_known_on_rle), expected_consistent);
 }
 
 TEST(ThreeBoard, Consistent) {

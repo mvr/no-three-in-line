@@ -14,45 +14,45 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
   }
 
   if (outcome.solved) {
-    std::cout << to_rle<N, W>(outcome.knownOn) << std::endl;
+    std::cout << to_rle<N, W>(outcome.known_on) << std::endl;
     return;
   }
 
   using row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
   
-  row_t line_knownOn, line_knownOff;
+  row_t line_known_on, line_known_off;
   if (outcome.axis == Axis::Horizontal) {
-    line_knownOn = outcome.knownOn[outcome.ix];
-    line_knownOff = outcome.knownOff[outcome.ix];
+    line_known_on = outcome.known_on[outcome.ix];
+    line_known_off = outcome.known_off[outcome.ix];
   } else { // Axis::Vertical
-    line_knownOn = 0;
-    line_knownOff = 0;
+    line_known_on = 0;
+    line_known_off = 0;
     for (unsigned r = 0; r < N; r++) {
-      if (outcome.knownOn[r] & ((row_t)1 << outcome.ix)) {
-        line_knownOn |= (row_t)1 << r;
+      if (outcome.known_on[r] & ((row_t)1 << outcome.ix)) {
+        line_known_on |= (row_t)1 << r;
       }
-      if (outcome.knownOff[r] & ((row_t)1 << outcome.ix)) {
-        line_knownOff |= (row_t)1 << r;
+      if (outcome.known_off[r] & ((row_t)1 << outcome.ix)) {
+        line_known_off |= (row_t)1 << r;
       }
     }
   }
 
-  row_t remaining = ~line_knownOn & ~line_knownOff & (((row_t)1 << N) - 1);
+  row_t remaining = ~line_known_on & ~line_known_off & (((row_t)1 << N) - 1);
 
   unsigned on_count;
   if constexpr (W == 64) {
-    on_count = __builtin_popcountll(line_knownOn);
+    on_count = __builtin_popcountll(line_known_on);
   } else {
-    on_count = __builtin_popcount(line_knownOn);
+    on_count = __builtin_popcount(line_known_on);
   }
 
   if (on_count == 1) {
     for (; remaining; remaining &= remaining - 1) {
       row_t lowest_bit = remaining & -remaining;
 
-      Problem<W> problem = {outcome.knownOn, outcome.knownOff, {}};
+      Problem<W> problem = {outcome.known_on, outcome.known_off, {}};
       if (outcome.axis == Axis::Horizontal) {
-        problem.knownOn[outcome.ix] |= lowest_bit;
+        problem.known_on[outcome.ix] |= lowest_bit;
         problem.seed[outcome.ix] |= lowest_bit;
       } else { // Axis::Vertical
         unsigned r;
@@ -61,7 +61,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
         } else {
           r = __builtin_ctz(lowest_bit);
         }
-        problem.knownOn[r] |= (row_t)1 << outcome.ix;
+        problem.known_on[r] |= (row_t)1 << outcome.ix;
         problem.seed[r] |= (row_t)1 << outcome.ix;
       }
       stack.push_back(problem);
@@ -73,11 +73,11 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
     for (; remaining; remaining &= remaining - 1) {
       row_t lowest_bit = remaining & -remaining;
 
-      Problem<W> problem = {outcome.knownOn, outcome.knownOff, {}};
+      Problem<W> problem = {outcome.known_on, outcome.known_off, {}};
 
       if (outcome.axis == Axis::Horizontal) {
-        problem.knownOn[outcome.ix] |= lowest_bit;
-        problem.knownOff[outcome.ix] |= prev_offs;
+        problem.known_on[outcome.ix] |= lowest_bit;
+        problem.known_off[outcome.ix] |= prev_offs;
         problem.seed[outcome.ix] |= lowest_bit;
       } else { // Axis::Vertical
         unsigned r;
@@ -86,7 +86,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
         } else {
           r = __builtin_ctz(lowest_bit);
         }
-        problem.knownOn[r] |= (row_t)1 << outcome.ix;
+        problem.known_on[r] |= (row_t)1 << outcome.ix;
         problem.seed[r] |= (row_t)1 << outcome.ix;
 
         row_t prev_offs_remaining = prev_offs;
@@ -98,7 +98,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
           } else {
             r = __builtin_ctz(lowest_bit);
           }
-          problem.knownOff[r] |= (row_t)1 << outcome.ix;
+          problem.known_off[r] |= (row_t)1 << outcome.ix;
         }
       }
 
@@ -132,8 +132,8 @@ int solve_main() {
     std::vector<Outcome<W>> outcomes = launch_work_kernel<N, W>(batch_size, batch, device_mem);
 
     for (auto &outcome : outcomes) {
-      // std::cout << "x = 10, y = 10, rule = LifeHistory" << std::endl;
-      // std::cout << to_rle_history<N, W>(outcome.knownOn, outcome.knownOff) << std::endl;
+      // std::cout << "x = 12, y = 12, rule = LifeHistory" << std::endl;
+      // std::cout << to_rle_history<N, W>(outcome.known_on, outcome.known_off) << std::endl;
       // std::cout << "solved: " << outcome.solved << std::endl;
       // std::cout << "consistent: " << outcome.consistent << std::endl;
       // std::cout << "unknown_pop: " << outcome.unknownPop << std::endl;
