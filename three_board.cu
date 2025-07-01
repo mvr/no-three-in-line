@@ -429,7 +429,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
 
   if constexpr (W == 64) {
     {
-      unsigned row = 2*(threadIdx.x & 31);
+      unsigned row = 2 * (threadIdx.x & 31);
       if (row % delta.second == p_rem) {
         int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
         if(col >= 0 && col < 32) result.state.x |= 1 << col;
@@ -442,7 +442,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
     }
 
     {
-      unsigned row = 2*((threadIdx.x&31)+1);
+      unsigned row = 2 * (threadIdx.x & 31) + 1;
       if (row % delta.second == p_rem) {
         int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
         if(col >= 0 && col < 32) result.state.z |= 1 << col;
