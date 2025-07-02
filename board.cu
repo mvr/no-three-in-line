@@ -242,8 +242,8 @@ _DI_ void BitBoard<W>::erase(int x, int y) {
 template<unsigned W>
 _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
   if constexpr (W == 64) {
-    unsigned x_low = __ffsll((uint64_t) state.y << 32 | state.x) - 1;
-    unsigned x_high = __ffsll((uint64_t) state.w << 32 | state.z) - 1;
+    unsigned x_low = find_first_set<64>((uint64_t) state.y << 32 | state.x);
+    unsigned x_high = find_first_set<64>((uint64_t) state.w << 32 | state.z);
 
     bool use_high = ((state.x | state.y) == 0);
     unsigned x = use_high ? x_high : x_low;
@@ -252,17 +252,17 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
     unsigned y = y_base + (use_high ? 1 : 0);
 
     uint32_t mask = __ballot_sync(0xffffffff, state.x | state.y | state.z | state.w);
-    unsigned first_lane = __ffs(mask) - 1;
+    unsigned first_lane = find_first_set<32>(mask);
 
     y = __shfl_sync(0xffffffff, y, first_lane);
     x = __shfl_sync(0xffffffff, x, first_lane);
 
     return {x, y};
   } else {
-    unsigned x = __ffs(state) - 1;
+    unsigned x = find_first_set<32>(state);
 
     uint32_t mask = __ballot_sync(0xffffffff, state);
-    unsigned first_lane = __ffs(mask) - 1;
+    unsigned first_lane = find_first_set<32>(mask);
 
     x = __shfl_sync(0xffffffff, x, first_lane);
 
@@ -316,9 +316,9 @@ template<unsigned W>
 _DI_ int BitBoard<W>::pop() const {
   int val;
   if constexpr (W == 64) {
-    val = __popc(state.x) + __popc(state.y) + __popc(state.z) + __popc(state.w);
+    val = popcount<32>(state.x) + popcount<32>(state.y) + popcount<32>(state.z) + popcount<32>(state.w);
   } else {
-    val = __popc(state);
+    val = popcount<32>(state);
   }
   return __reduce_add_sync(0xffffffff, val);
 }
@@ -332,7 +332,7 @@ _DI_ bool BitBoard<W>::operator<(BitBoard other) const {
     uint32_t x_diff = x_lt | x_gt;
     
     if (x_diff) {
-      int first_diff = __ffs(x_diff) - 1;
+      int first_diff = find_first_set<32>(x_diff);
       return __shfl_sync(0xffffffff, state.x < other.state.x, first_diff);
     }
     
@@ -341,7 +341,7 @@ _DI_ bool BitBoard<W>::operator<(BitBoard other) const {
     uint32_t y_diff = y_lt | y_gt;
     
     if (y_diff) {
-      int first_diff = __ffs(y_diff) - 1;
+      int first_diff = find_first_set<32>(y_diff);
       return __shfl_sync(0xffffffff, state.y < other.state.y, first_diff);
     }
     
@@ -350,7 +350,7 @@ _DI_ bool BitBoard<W>::operator<(BitBoard other) const {
     uint32_t z_diff = z_lt | z_gt;
     
     if (z_diff) {
-      int first_diff = __ffs(z_diff) - 1;
+      int first_diff = find_first_set<32>(z_diff);
       return __shfl_sync(0xffffffff, state.z < other.state.z, first_diff);
     }
     
@@ -359,7 +359,7 @@ _DI_ bool BitBoard<W>::operator<(BitBoard other) const {
     uint32_t w_diff = w_lt | w_gt;
     
     if (w_diff) {
-      int first_diff = __ffs(w_diff) - 1;
+      int first_diff = find_first_set<32>(w_diff);
       return __shfl_sync(0xffffffff, state.w < other.state.w, first_diff);
     }
     
@@ -371,7 +371,7 @@ _DI_ bool BitBoard<W>::operator<(BitBoard other) const {
     uint32_t diff = lt | gt;
     
     if (diff) {
-      int first_diff = __ffs(diff) - 1;
+      int first_diff = find_first_set<32>(diff);
       return __shfl_sync(0xffffffff, state < other.state, first_diff);
     }
     

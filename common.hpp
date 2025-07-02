@@ -30,35 +30,62 @@ enum class LexStatus {
 #define _HD_ _HI_
 #endif
 
-#ifdef __CUDACC__
-
-// Copied from https://gitlab.com/hatsya/open-source/cpads/-/blob/master/include/cpads/core.hpp
-// TODO: just make this a lookup table?
-/**
- * Fastest runtime implementation of greatest common divisor.
- *
- * This is based on Stein's binary GCD algorithm, but with a modified loop
- * predicate to optimise for the case where the GCD has no odd prime factors
- * (this happens with probability 8/pi^2 = 81% of the time).
- */
-_DI_ uint32_t binary_gcd(uint32_t x, uint32_t y) {
-    if (x == 0) { return y; }
-    if (y == 0) { return x; }
-    int i = __ffs(x)-1; uint32_t u = x >> i;
-    int j = __ffs(y)-1; uint32_t v = y >> j;
-    int k = (i < j) ? i : j;
-
-    while ((u != v) && (v != 1)) { // loop invariant: both u and v are odd
-        if (u > v) { auto w = v; v = u; u = w; }
-        v -= u; // now v is even
-        v >>= __ffs(v)-1;
-    }
-
-    return (v << k);
+template<unsigned W>
+_HD_ int popcount(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
+  if constexpr (W == 64) {
+    #ifdef __CUDACC__
+    return __popcll(x);
+    #else
+    return __builtin_popcountll(x);
+    #endif
+  } else {
+    #ifdef __CUDACC__
+    return __popc(x);
+    #else
+    return __builtin_popcount(x);
+    #endif
+  }
 }
+
+template<unsigned W>
+_HD_ int find_first_set(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
+  if constexpr (W == 64) {
+    #ifdef __CUDACC__
+    return __ffsll(x) - 1;
+    #else
+    return __builtin_ffsll(x);
+    #endif
+  } else {
+    #ifdef __CUDACC__
+    return __ffs(x) - 1;
+    #else
+    return __builtin_ffs(x);
+    #endif
+  }
+}
+
+template<unsigned W>
+_HD_ int count_trailing_zeros(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
+  if constexpr (W == 64) {
+    #ifdef __CUDACC__
+    return __clzll(__brevll(x));
+    #else
+    return __builtin_ctzll(x);
+    #endif
+  } else {
+    #ifdef __CUDACC__
+    return __clz(__brev(x));
+    #else
+    return __builtin_ctz(x);
+    #endif
+  }
+}
+
+#ifdef __CUDACC__
 
 __constant__ unsigned char div_gcd_table[64][64];
 
 __constant__ uint64_t relevant_endpoint_table[64];
 __constant__ uint64_t relevant_endpoint_table_64[256];
+
 #endif

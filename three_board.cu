@@ -223,7 +223,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
   ThreeBoard<N, W> result = *this;
 
   if constexpr (W == 64) {
-    int on_pop_x = __popc(known_on.state.x) + __popc(known_on.state.y);
+    int on_pop_x = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
     if(on_pop_x == 2) {
       result.known_off.state.x = ~known_on.state.x;
       result.known_off.state.y = ~known_on.state.y;
@@ -233,7 +233,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
       result.known_off = BitBoard<W>::solid();
     }
 
-    int on_pop_z = __popc(known_on.state.z) + __popc(known_on.state.w);
+    int on_pop_z = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
     if(on_pop_z == 2) {
       result.known_off.state.z = ~known_on.state.z;
       result.known_off.state.w = ~known_on.state.w;
@@ -243,7 +243,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
       result.known_off = BitBoard<W>::solid();
     }
 
-    int off_pop_x = __popc(known_off.state.x) + __popc(known_off.state.y);
+    int off_pop_x = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
     if(off_pop_x == N - 2) {
       result.known_on.state.x = ~known_off.state.x;
       result.known_on.state.y = ~known_off.state.y;
@@ -253,7 +253,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
       result.known_off = BitBoard<W>::solid();
     }
 
-    int off_pop_z = __popc(known_off.state.z) + __popc(known_off.state.w);
+    int off_pop_z = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
     if(off_pop_z == N - 2) {
       result.known_on.state.z = ~known_off.state.z;
       result.known_on.state.w = ~known_off.state.w;
@@ -263,7 +263,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
       result.known_off = BitBoard<W>::solid();
     }
   } else {
-    int on_pop = __popc(known_on.state);
+    int on_pop = popcount<32>(known_on.state);
     if(on_pop == 2) {
       result.known_off.state = ~known_on.state;
     }
@@ -272,7 +272,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
       result.known_off = BitBoard<W>::solid();
     }
 
-    int off_pop = __popc(known_off.state);
+    int off_pop = popcount<32>(known_off.state);
     if(off_pop == N - 2) {
       result.known_on.state = ~known_off.state;
     }
@@ -526,10 +526,10 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
   auto row_known_on = (d == Axis::Horizontal) ? known_on.row(r) : known_on.column(r);
   auto row_known_off = (d == Axis::Horizontal) ? known_off.row(r) : known_off.column(r);
   
-  unsigned on_count = (W == 64) ? __popcll(row_known_on) : __popc(row_known_on);
+  unsigned on_count = popcount<W>(row_known_on);
   if(on_count >= 2) return;
 
-  unsigned off_count = (W == 64) ? __popcll(row_known_off) : __popc(row_known_off);
+  unsigned off_count = popcount<W>(row_known_off);
   unsigned unknown_count = N - on_count - off_count;
   
   if (on_count == 1 && unknown_count > SOFT_BRANCH_1_THRESHOLD) return;
@@ -542,12 +542,8 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
     return (d == Axis::Horizontal) ? cuda::std::pair<unsigned, unsigned>{c, r} : cuda::std::pair<unsigned, unsigned>{r, c};
   };
 
-  auto first_bit = [](typename BitBoard<W>::row_t val) {
-    return ((W == 64) ? __ffsll(val) : __ffs(val)) - 1;
-  };
-
   for (; remaining; remaining &= remaining - 1) {
-    auto cell = make_cell(first_bit(remaining));
+    auto cell = make_cell(find_first_set<W>(remaining));
 
     ThreeBoard<N, W> subBoard = *this;
     subBoard.known_on.set(cell);
@@ -570,7 +566,7 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
     typename BitBoard<W>::row_t remaining2 =
       remaining &
       ~row_known_on2 & ~row_known_off2 &
-      ~((typename BitBoard<W>::row_t)1 << first_bit(remaining)) &
+      ~((typename BitBoard<W>::row_t)1 << find_first_set<W>(remaining)) &
       (((typename BitBoard<W>::row_t)1 << N) - 1);
 
     if (remaining2 == 0) {
@@ -579,7 +575,7 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
     }
 
     for (; remaining2; remaining2 &= remaining2 - 1) {
-      auto cell2 = make_cell(first_bit(remaining2));
+      auto cell2 = make_cell(find_first_set<W>(remaining2));
       ThreeBoard<N, W> subBoard2 = subBoard;
       subBoard2.known_on.set(cell2);
       subBoard2.eliminate_all_lines(cell2);
@@ -617,8 +613,8 @@ ThreeBoard<N, W>::most_constrained_row() const {
 
   if constexpr (W == 64) {
     BitBoard<W> known = known_on | known_off;
-    unsigned unknown_xy = N - __popc(known.state.x) - __popc(known.state.y);
-    unsigned unknown_zw = N - __popc(known.state.z) - __popc(known.state.w);
+    unsigned unknown_xy = N - popcount<32>(known.state.x) - popcount<32>(known.state.y);
+    unsigned unknown_zw = N - popcount<32>(known.state.z) - popcount<32>(known.state.w);
 
     if(known_on.state.x == 0 && known_on.state.y == 0)
       unknown_xy = unknown_xy * (unknown_xy - 1) / 2;
@@ -640,7 +636,7 @@ ThreeBoard<N, W>::most_constrained_row() const {
     }
   } else {
     BitBoard<W> known = known_on | known_off;
-    unknown = N - __popc(known.state);
+    unknown = N - popcount<32>(known.state);
 
     if(known_on.state == 0)
       unknown = unknown * (unknown - 1) / 2;
@@ -680,9 +676,9 @@ ThreeBoard<N, W>::most_constrained_col() const {
 
     unsigned unknown;
     if constexpr (W == 64) {
-      unknown = N - __popcll(col_known);
+      unknown = N - popcount<64>(col_known);
     } else {
-      unknown = N - __popc(col_known);
+      unknown = N - popcount<32>(col_known);
     }
 
     if (col_known_on == 0) {
