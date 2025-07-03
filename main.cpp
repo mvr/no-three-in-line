@@ -39,12 +39,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
 
   row_t remaining = ~line_known_on & ~line_known_off & (((row_t)1 << N) - 1);
 
-  unsigned on_count;
-  if constexpr (W == 64) {
-    on_count = __builtin_popcountll(line_known_on);
-  } else {
-    on_count = __builtin_popcount(line_known_on);
-  }
+  unsigned on_count = popcount<W>(line_known_on);
 
   if (on_count == 1) {
     for (; remaining; remaining &= remaining - 1) {
@@ -55,12 +50,7 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
         problem.known_on[outcome.ix] |= lowest_bit;
         problem.seed[outcome.ix] |= lowest_bit;
       } else { // Axis::Vertical
-        unsigned r;
-        if constexpr (W == 64) {
-          r = __builtin_ctzll(lowest_bit);
-        } else {
-          r = __builtin_ctz(lowest_bit);
-        }
+        unsigned r = count_trailing_zeros<W>(lowest_bit);
         problem.known_on[r] |= (row_t)1 << outcome.ix;
         problem.seed[r] |= (row_t)1 << outcome.ix;
       }
@@ -80,24 +70,14 @@ void resolve_outcome(Outcome<W> &outcome, std::vector<Problem<W>> &stack) {
         problem.known_off[outcome.ix] |= prev_offs;
         problem.seed[outcome.ix] |= lowest_bit;
       } else { // Axis::Vertical
-        unsigned r;
-        if constexpr (W == 64) {
-          r = __builtin_ctzll(lowest_bit);
-        } else {
-          r = __builtin_ctz(lowest_bit);
-        }
+        unsigned r = count_trailing_zeros<W>(lowest_bit);
         problem.known_on[r] |= (row_t)1 << outcome.ix;
         problem.seed[r] |= (row_t)1 << outcome.ix;
 
         row_t prev_offs_remaining = prev_offs;
         for (; prev_offs_remaining; prev_offs_remaining &= prev_offs_remaining - 1) {
           row_t lowest_bit = prev_offs_remaining & -prev_offs_remaining;
-          unsigned r;
-          if constexpr (W == 64) {
-            r = __builtin_ctzll(lowest_bit);
-          } else {
-            r = __builtin_ctz(lowest_bit);
-          }
+          unsigned r = count_trailing_zeros<W>(lowest_bit);
           problem.known_off[r] |= (row_t)1 << outcome.ix;
         }
       }
