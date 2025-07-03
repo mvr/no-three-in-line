@@ -43,7 +43,13 @@ struct ThreeBoard {
 
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoard<N, W>::bounds() {
-  if constexpr (W == 64) {
+  if constexpr (W == 32) {
+    uint32_t row_bound = N >= 32 ? (~0) : (1 << N) - 1;
+    bool has_row = (threadIdx.x & 31) < N;
+    BitBoard<W> result;
+    result.state = has_row ? row_bound : 0;
+    return result;
+  } else {
     uint32_t row_bound_x = N >= 32 ? (~0) : (1 << N) - 1;
     uint32_t row_bound_y = N >= 32 ? (1 << (N - 32)) - 1 : 0;
     bool has_half = (threadIdx.x & 31) < ((N + 1) >> 1);
@@ -54,18 +60,16 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::bounds() {
     result.state.z = has_full ? row_bound_x : 0;
     result.state.w = has_full ? row_bound_y : 0;
     return result;
-  } else {
-    uint32_t row_bound = N >= 32 ? (~0) : (1 << N) - 1;
-    bool has_row = (threadIdx.x & 31) < N;
-    BitBoard<W> result;
-    result.state = has_row ? row_bound : 0;
-    return result;
   }
 }
 
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, unsigned> p) {
-  if constexpr (W == 64) {
+  if constexpr (W == 32) {
+    uint64_t fullrow = relevant_endpoint_table[32-p.second+(threadIdx.x & 31)];
+    uint32_t moved_row = fullrow >> (32-p.first); // And truncated
+    return BitBoard<W>(moved_row);
+  } else {
     BitBoard<W> result;
 
     // For row threadIdx.x * 2
@@ -99,12 +103,8 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, u
         result.state.w = (full_low_bits >> (64 - (p.first - 32))) | (full_high_bits << (p.first - 32));
       }
     }
-    
+
     return result;
-  } else {
-    uint64_t fullrow = relevant_endpoint_table[32-p.second+(threadIdx.x & 31)];
-    uint32_t moved_row = fullrow >> (32-p.first); // And truncated
-    return BitBoard<W>(moved_row);
   }
 }
 
@@ -222,7 +222,25 @@ template <unsigned N, unsigned W>
 _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
   ThreeBoard<N, W> result = *this;
 
-  if constexpr (W == 64) {
+  if constexpr (W == 32) {
+    int on_pop = popcount<32>(known_on.state);
+    if(on_pop == 2) {
+      result.known_off.state = ~known_on.state;
+    }
+    if(on_pop > 2) {
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
+    }
+
+    int off_pop = popcount<32>(known_off.state);
+    if(off_pop == N - 2) {
+      result.known_on.state = ~known_off.state;
+    }
+    if(off_pop > N - 2) {
+      result.known_on = BitBoard<W>::solid();
+      result.known_off = BitBoard<W>::solid();
+    }
+  } else {
     int on_pop_x = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
     if(on_pop_x == 2) {
       result.known_off.state.x = ~known_on.state.x;
@@ -259,24 +277,6 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
       result.known_on.state.w = ~known_off.state.w;
     }
     if(off_pop_z > N - 2) {
-      result.known_on = BitBoard<W>::solid();
-      result.known_off = BitBoard<W>::solid();
-    }
-  } else {
-    int on_pop = popcount<32>(known_on.state);
-    if(on_pop == 2) {
-      result.known_off.state = ~known_on.state;
-    }
-    if(on_pop > 2) {
-      result.known_on = BitBoard<W>::solid();
-      result.known_off = BitBoard<W>::solid();
-    }
-
-    int off_pop = popcount<32>(known_off.state);
-    if(off_pop == N - 2) {
-      result.known_on.state = ~known_off.state;
-    }
-    if(off_pop > N - 2) {
       result.known_on = BitBoard<W>::solid();
       result.known_off = BitBoard<W>::solid();
     }
@@ -331,7 +331,25 @@ template <unsigned N, unsigned W>
 _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
   ThreeBoard<N, W> result = *this;
 
-  if constexpr (W == 64) {
+  if constexpr (W == 32) {
+    const BinaryCount on_count = count_vertically(known_on.state);
+    const uint32_t on_count_eq_2 = ~on_count.overflow & on_count.bit1 & ~on_count.bit0;
+    result.known_off.state |= ~known_on.state & on_count_eq_2;
+
+    const uint32_t on_count_gt_2 = on_count.overflow | (on_count.bit1 & on_count.bit0);
+    result.known_on.state |= on_count_gt_2;
+    result.known_off.state |= on_count_gt_2;
+
+    BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
+
+    const BinaryCount not_off_count = count_vertically(notKnownOff.state);
+    const uint32_t not_off_count_eq_2 = ~not_off_count.overflow & not_off_count.bit1 & ~not_off_count.bit0;
+    result.known_on.state |= ~known_off.state & not_off_count_eq_2;
+
+    const uint32_t not_off_count_lt_2 = ~not_off_count.overflow & ~not_off_count.bit1;
+    result.known_on.state |= not_off_count_lt_2;
+    result.known_off.state |= not_off_count_lt_2;
+  } else {
     const BinaryCount on_count_xz = count_vertically(known_on.state.x) + count_vertically(known_on.state.z);
     const uint32_t on_count_xz_eq_2 = ~on_count_xz.overflow & on_count_xz.bit1 & ~on_count_xz.bit0;
     result.known_off.state.x |= ~known_on.state.x & on_count_xz_eq_2;
@@ -369,24 +387,6 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     const uint32_t not_off_count_yw_lt_2 = ~not_off_count_yw.overflow & ~not_off_count_yw.bit1;
     result.known_on.state.y |= not_off_count_yw_lt_2;
     result.known_off.state.y |= not_off_count_yw_lt_2;
-  } else {
-    const BinaryCount on_count = count_vertically(known_on.state);
-    const uint32_t on_count_eq_2 = ~on_count.overflow & on_count.bit1 & ~on_count.bit0;
-    result.known_off.state |= ~known_on.state & on_count_eq_2;
-
-    const uint32_t on_count_gt_2 = on_count.overflow | (on_count.bit1 & on_count.bit0);
-    result.known_on.state |= on_count_gt_2;
-    result.known_off.state |= on_count_gt_2;
-
-    BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
-
-    const BinaryCount not_off_count = count_vertically(notKnownOff.state);
-    const uint32_t not_off_count_eq_2 = ~not_off_count.overflow & not_off_count.bit1 & ~not_off_count.bit0;
-    result.known_on.state |= ~known_off.state & not_off_count_eq_2;
-
-    const uint32_t not_off_count_lt_2 = ~not_off_count.overflow & ~not_off_count.bit1;
-    result.known_on.state |= not_off_count_lt_2;
-    result.known_off.state |= not_off_count_lt_2;
   }
 
   const BitBoard<W> bds = ThreeBoard<N, W>::bounds();
@@ -427,7 +427,16 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
 
   BitBoard<W> result;
 
-  if constexpr (W == 64) {
+  if constexpr (W == 32) {
+    unsigned row = threadIdx.x & 31;
+    if (row % delta.second == p_rem) {
+      int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
+      if(col >= 0 && col < 32) result.state |= 1 << col;
+    }
+    if (p.second == row || q.second == row) {
+      result.state = 0;
+    }
+  } else {
     {
       unsigned row = 2 * (threadIdx.x & 31);
       if (row % delta.second == p_rem) {
@@ -452,15 +461,6 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
         result.state.z = 0;
         result.state.w = 0;
       }
-    }
-  } else {
-    unsigned row = threadIdx.x & 31;
-    if (row % delta.second == p_rem) {
-      int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
-      if(col >= 0 && col < 32) result.state |= 1 << col;
-    }
-    if (p.second == row || q.second == row) {
-      result.state = 0;
     }
   }
 
@@ -611,7 +611,18 @@ ThreeBoard<N, W>::most_constrained_row() const {
   unsigned row;
   unsigned unknown;
 
-  if constexpr (W == 64) {
+  if constexpr (W == 32) {
+    BitBoard<W> known = known_on | known_off;
+    unknown = N - popcount<32>(known.state);
+
+    if(known_on.state == 0)
+      unknown = unknown * (unknown - 1) / 2;
+
+    if ((threadIdx.x & 31) >= N || unknown == 0)
+      unknown = std::numeric_limits<unsigned>::max();
+
+    row = (threadIdx.x & 31);
+  } else {
     BitBoard<W> known = known_on | known_off;
     unsigned unknown_xy = N - popcount<32>(known.state.x) - popcount<32>(known.state.y);
     unsigned unknown_zw = N - popcount<32>(known.state.z) - popcount<32>(known.state.w);
@@ -634,17 +645,6 @@ ThreeBoard<N, W>::most_constrained_row() const {
       row = (threadIdx.x & 31) * 2 + 1;
       unknown = unknown_zw;
     }
-  } else {
-    BitBoard<W> known = known_on | known_off;
-    unknown = N - popcount<32>(known.state);
-
-    if(known_on.state == 0)
-      unknown = unknown * (unknown - 1) / 2;
-
-    if ((threadIdx.x & 31) >= N || unknown == 0)
-      unknown = std::numeric_limits<unsigned>::max();
-
-    row = (threadIdx.x & 31);
   }
 
   for (int offset = 16; offset > 0; offset /= 2) {
@@ -674,12 +674,7 @@ ThreeBoard<N, W>::most_constrained_col() const {
     typename BitBoard<W>::row_t col_known_off = known_off.column(c);
     typename BitBoard<W>::row_t col_known = col_known_on | col_known_off;
 
-    unsigned unknown;
-    if constexpr (W == 64) {
-      unknown = N - popcount<64>(col_known);
-    } else {
-      unknown = N - popcount<32>(col_known);
-    }
+    unsigned unknown = N - popcount<W>(col_known);
 
     if (col_known_on == 0) {
       unknown = unknown * (unknown - 1) / 2;

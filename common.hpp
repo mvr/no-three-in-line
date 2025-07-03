@@ -32,51 +32,51 @@ enum class LexStatus {
 
 template<unsigned W>
 _HD_ int popcount(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
-  if constexpr (W == 64) {
-    #ifdef __CUDACC__
-    return __popcll(x);
-    #else
-    return __builtin_popcountll(x);
-    #endif
-  } else {
+  if constexpr (W == 32) {
     #ifdef __CUDACC__
     return __popc(x);
     #else
     return __builtin_popcount(x);
+    #endif
+  } else {
+    #ifdef __CUDACC__
+    return __popcll(x);
+    #else
+    return __builtin_popcountll(x);
     #endif
   }
 }
 
 template<unsigned W>
 _HD_ int find_first_set(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
-  if constexpr (W == 64) {
-    #ifdef __CUDACC__
-    return __ffsll(x) - 1;
-    #else
-    return __builtin_ffsll(x);
-    #endif
-  } else {
+  if constexpr (W == 32) {
     #ifdef __CUDACC__
     return __ffs(x) - 1;
     #else
     return __builtin_ffs(x);
+    #endif
+  } else {
+    #ifdef __CUDACC__
+    return __ffsll(x) - 1;
+    #else
+    return __builtin_ffsll(x);
     #endif
   }
 }
 
 template<unsigned W>
 _HD_ int count_trailing_zeros(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
-  if constexpr (W == 64) {
-    #ifdef __CUDACC__
-    return __clzll(__brevll(x));
-    #else
-    return __builtin_ctzll(x);
-    #endif
-  } else {
+  if constexpr (W == 32) {
     #ifdef __CUDACC__
     return __clz(__brev(x));
     #else
     return __builtin_ctz(x);
+    #endif
+  } else {
+    #ifdef __CUDACC__
+    return __clzll(__brevll(x));
+    #else
+    return __builtin_ctzll(x);
     #endif
   }
 }

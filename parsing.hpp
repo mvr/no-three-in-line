@@ -118,10 +118,10 @@ std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> 
   using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
   return generic_parse_rle<ArrayType>(rle, [&](ArrayType &result, char ch, int x, int y) -> void {
     if (ch == 'o') {
-      if constexpr (W == 64) {
-        result[y] |= (1ULL << x);
-      } else {
+      if constexpr (W == 32) {
         result[y] |= (1U << x);
+      } else {
+        result[y] |= (1ULL << x);
       }
     }
   });
@@ -130,10 +130,10 @@ std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> 
 template<unsigned N, unsigned W>
 std::string to_rle(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &board) {
   return generic_to_rle<N>([&](int x, int y) -> char {
-    if constexpr (W == 64) {
-      return (board[y] & (1ULL << x)) ? 'o' : 'b';
-    } else {
+    if constexpr (W == 32) {
       return (board[y] & (1U << x)) ? 'o' : 'b';
+    } else {
+      return (board[y] & (1ULL << x)) ? 'o' : 'b';
     }
   });
 }
@@ -148,17 +148,17 @@ parse_rle_history(const std::string &rle) {
   ArrayType known_off = {};
   generic_parse_rle<ArrayType>(rle, [&](ArrayType &result, char ch, int x, int y) -> void {
     if (ch == 'A') {
-      if constexpr (W == 64) {
-        known_on[y] |= (1ULL << x);
-      } else {
+      if constexpr (W == 32) {
         known_on[y] |= (1U << x);
+      } else {
+        known_on[y] |= (1ULL << x);
       }
     }
     if (ch == 'D') {
-      if constexpr (W == 64) {
-        known_off[y] |= (1ULL << x);
-      } else {
+      if constexpr (W == 32) {
         known_off[y] |= (1U << x);
+      } else {
+        known_off[y] |= (1ULL << x);
       }
     }
   });
@@ -170,12 +170,12 @@ std::string to_rle_history(const std::conditional_t<W == 64, std::array<uint64_t
                            const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &known_off) {
   return generic_to_rle<N>([&](int x, int y) -> char {
     bool is_known_on, is_known_off;
-    if constexpr (W == 64) {
-      is_known_on = known_on[y] & (1ULL << x);
-      is_known_off = known_off[y] & (1ULL << x);
-    } else {
+    if constexpr (W == 32) {
       is_known_on = known_on[y] & (1U << x);
       is_known_off = known_off[y] & (1U << x);
+    } else {
+      is_known_on = known_on[y] & (1ULL << x);
+      is_known_off = known_off[y] & (1ULL << x);
     }
     if(is_known_on && is_known_off) return 'F';
     if(is_known_on) return 'A';
