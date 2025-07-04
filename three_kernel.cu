@@ -1,99 +1,210 @@
 #include <array>
 #include <vector>
 #include <numeric>
+#include <iostream>
 
 #include "board.cu"
 #include "three_board.cu"
 
 #include "three_kernel.hpp"
+#include "parsing.hpp"
 
 #include "params.hpp"
 
+template<unsigned W>
+struct DeviceProblem {
+  BitBoard<W> known_on;
+  BitBoard<W> known_off;
+  BitBoard<W> seed;
+};
+
 template <unsigned W>
-DeviceMemory<W>::DeviceMemory(unsigned batch_size) : max_batch_size(batch_size) {
-  cudaMalloc((void**) &d_problems, max_batch_size * sizeof(Problem<W>));
-  cudaMalloc((void**) &d_outcomes, max_batch_size * sizeof(Outcome<W>));
+__device__ bool stack_push(DeviceStack<W> *stack, const DeviceProblem<W> &problem) {
+  unsigned old_size;
+  
+  if ((threadIdx.x & 31) == 0) {
+    old_size = atomicAdd(&stack->size, 1);
+  }
+  old_size = __shfl_sync(0xffffffff, old_size, 0);
+  
+  if (old_size >= STACK_CAPACITY) {
+    return false; // Stack overflow
+  }
+  
+  problem.known_on.save(stack->problems[old_size].known_on.data());
+  problem.known_off.save(stack->problems[old_size].known_off.data());
+  problem.seed.save(stack->problems[old_size].seed.data());
+
+  return true;
 }
 
 template <unsigned W>
-DeviceMemory<W>::~DeviceMemory() {
-  cudaFree(d_problems);
-  cudaFree(d_outcomes);
+__device__ bool solution_buffer_push(SolutionBuffer<W> *buffer, BitBoard<W> &solution) {
+  unsigned pos;
+  if ((threadIdx.x & 31) == 0) {
+    pos = atomicAdd(&buffer->size, 1);
+  }
+  pos = __shfl_sync(0xffffffff, pos, 0);
+  
+  if (pos >= SOLUTION_BUFFER_CAPACITY) {
+    return false;
+  }
+
+  solution.save(buffer->solutions[pos].data());
+
+  return true;
 }
 
 template <unsigned N, unsigned W>
-__global__ void work_kernel(unsigned problem_count, Problem<W> *problems, Outcome<W> *outcomes) {
-  const unsigned problem_idx = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
+__device__ void resolve_outcome_device(const ThreeBoard<N, W> board, Axis axis, unsigned ix, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
+  using row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
+  
+  row_t line_known_on, line_known_off;
+  if (axis == Axis::Horizontal) {
+    line_known_on = board.known_on.row(ix);
+    line_known_off = board.known_off.row(ix);
+  } else { // Axis::Vertical
+    line_known_on = board.known_on.column(ix);
+    line_known_off = board.known_off.column(ix);
+  }
 
-  if(problem_idx >= problem_count)
-    return;
+  row_t remaining = ~line_known_on & ~line_known_off & (((row_t)1 << N) - 1);
+  unsigned on_count = popcount<W>(line_known_on);
 
-  Problem<W> &problem = problems[problem_idx];
-  Outcome<W> &outcome = outcomes[problem_idx];
-  BitBoard<W> seed = BitBoard<W>::load(problem.seed.data());
+  auto make_cell = [&](unsigned c) {
+    return (axis == Axis::Horizontal) ? cuda::std::pair<unsigned, unsigned>{c, ix} : cuda::std::pair<unsigned, unsigned>{ix, c};
+  };
+
+  if (on_count == 1) {
+    for (; remaining; remaining &= remaining - 1) {
+      auto cell = make_cell(find_first_set<W>(remaining));
+
+      DeviceProblem<W> problem = {board.known_on, board.known_off, {}};
+      problem.known_on.set(cell);
+      problem.seed.set(cell);
+
+      stack_push(stack, problem);
+    }
+  }
+
+  if (on_count == 0) {
+    row_t prev_offs = 0;
+
+    DeviceProblem<W> tried_problem = {board.known_on, board.known_off, {}};
+
+    for (; remaining; remaining &= remaining - 1) {
+      auto cell = make_cell(find_first_set<W>(remaining));
+
+      DeviceProblem<W> problem = tried_problem;
+      problem.known_on.set(cell);
+      problem.seed.set(cell);
+
+      stack_push(stack, problem);
+
+      tried_problem.known_off.set(cell);
+    }
+  }
+}
+
+template <unsigned N, unsigned W>
+__global__ void initialize_stack_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
+  ThreeBoard<N, W> board;
+  resolve_outcome_device<N, W>(board, Axis::Horizontal, 0, stack, solution_buffer);
+}
+
+template <unsigned N, unsigned W>
+__global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer, unsigned batch_start, unsigned batch_size) {
+  const unsigned problem_idx = batch_start + (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
+
+  DeviceProblem<W> problem;
+  problem.known_on = BitBoard<W>::load(stack->problems[problem_idx].known_on.data());
+  problem.known_off = BitBoard<W>::load(stack->problems[problem_idx].known_off.data());
+  problem.seed = BitBoard<W>::load(stack->problems[problem_idx].seed.data());
 
   ThreeBoard<N, W> board;
-  board.known_on = BitBoard<W>::load(problem.known_on.data()) | seed;
-  board.known_off = BitBoard<W>::load(problem.known_off.data());
+  board.known_on = problem.known_on | problem.seed;
+  board.known_off = problem.known_off;
 
-  board.eliminate_all_lines(seed);
+  board.eliminate_all_lines(problem.seed);
   board.propagate();
   board.soft_branch_all();
 
+  if (!board.consistent())
+    return;
+
   if (board.is_canonical_orientation() == LexStatus::Greater) {
-    if ((threadIdx.x & 31) == 0) {
-      outcome.consistent = false;
-    }
     return;
   }
 
-  board.known_on.save(outcome.known_on.data());
-  board.known_off.save(outcome.known_off.data());
-
-  bool consistent = board.consistent();
-
-  if((threadIdx.x & 31) == 0) {
-    outcome.consistent = consistent;
+  if (board.unknown_pop() == 0) {
+    solution_buffer_push(solution_buffer, board.known_on);
+    return;
   }
 
-  if(consistent) {
-    unsigned unknown_pop = board.unknown_pop();
-    auto [row, _] = board.most_constrained_row();
+  auto [row, _] = board.most_constrained_row();
 
-    if((threadIdx.x & 31) == 0) {
-      outcome.unknown_pop = unknown_pop;
-      outcome.solved = outcome.unknown_pop == 0;
-      outcome.axis = Axis::Horizontal;
-      outcome.ix = row;
-    }
-  }
+  resolve_outcome_device<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
 }
 
-
 template <unsigned N, unsigned W>
-std::vector<Outcome<W>>
-launch_work_kernel(unsigned batch_size,
-                   std::vector<Problem<W>> problems,
-                   DeviceMemory<W> &device_mem) {
-  cudaMemcpy(device_mem.d_problems, problems.data(), batch_size * sizeof(Problem<W>), cudaMemcpyHostToDevice);
+int solve_with_device_stack() {
+  init_lookup_tables_host();
+  init_relevant_endpoint_host();
+  init_relevant_endpoint_host_64();
 
-  unsigned blocks = ((batch_size-1) / WARPS_PER_BLOCK) + 1;
-  work_kernel<N, W><<<blocks, WARPS_PER_BLOCK * 32>>>(batch_size, device_mem.d_problems, device_mem.d_outcomes);
+  DeviceStack<W> *d_stack;
+  SolutionBuffer<W> *d_solution_buffer;
+  
+  cudaMalloc((void**) &d_stack, sizeof(DeviceStack<W>));
+  cudaMalloc((void**) &d_solution_buffer, sizeof(SolutionBuffer<W>));
+  
+  cudaMemset(d_stack, 0, sizeof(DeviceStack<W>));
+  cudaMemset(d_solution_buffer, 0, sizeof(SolutionBuffer<W>));
 
-  device_mem.outcomes_buffer.resize(batch_size);
-  cudaMemcpy(device_mem.outcomes_buffer.data(), device_mem.d_outcomes, batch_size * sizeof(Outcome<W>), cudaMemcpyDeviceToHost);
+  initialize_stack_kernel<N, W><<<1, 32>>>(d_stack, d_solution_buffer);
 
-  return std::move(device_mem.outcomes_buffer);
+  unsigned start_size;
+  cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+
+  while (start_size > 0) {
+    unsigned batch_size = std::min(start_size, static_cast<unsigned>(MAX_BATCH_SIZE));
+    unsigned batch_start = start_size - batch_size;
+
+    unsigned blocks = (batch_size + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
+    work_kernel<N, W><<<blocks, WARPS_PER_BLOCK * 32>>>(d_stack, d_solution_buffer, batch_start, batch_size);
+
+    unsigned new_size;
+    cudaMemcpy(&new_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+
+    cudaMemcpy(&d_stack->problems[batch_start], &d_stack->problems[start_size],
+               (new_size - start_size) * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+
+    start_size = new_size - batch_size;
+
+    cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
+    
+    unsigned solution_count;
+    cudaMemcpy(&solution_count, &d_solution_buffer->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+    
+    if (solution_count > 0) {
+      std::vector<typename SolutionBuffer<W>::ArrayType> solutions(solution_count);
+      for (unsigned i = 0; i < solution_count; i++) {
+        cudaMemcpy(&solutions[i], &d_solution_buffer->solutions[i], sizeof(typename SolutionBuffer<W>::ArrayType), cudaMemcpyDeviceToHost);
+        std::cout << to_rle<N, W>(solutions[i]) << std::endl;
+      }
+      
+      cudaMemset(&d_solution_buffer->size, 0, sizeof(unsigned));
+    }
+  }
+
+  cudaFree(d_stack);
+  cudaFree(d_solution_buffer);
+
+  return 0;
 }
 
 // Explicitly instantiate the template to the N in params.hpp, or it doesn't get compiled at all.
-template DeviceMemory<32>::DeviceMemory(unsigned batch_size);
-template DeviceMemory<32>::~DeviceMemory();
-template std::vector<Outcome<32>>
-launch_work_kernel<N, 32>(unsigned batch_size, std::vector<Problem<32>> problems, DeviceMemory<32> &device_mem);
-
-// template std::vector<Outcome<64>>
-// launch_work_kernel<N, 64>(unsigned batch_size, std::vector<Problem<64>> problems);
+template int solve_with_device_stack<N, 32>();
 
 void init_lookup_tables_host() {
   unsigned char host_div_gcd_table[64][64];
