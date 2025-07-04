@@ -114,7 +114,11 @@ __global__ void initialize_stack_kernel(DeviceStack<W> *stack, SolutionBuffer<W>
 
 template <unsigned N, unsigned W>
 __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer, unsigned batch_start, unsigned batch_size) {
-  const unsigned problem_idx = batch_start + (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
+  const unsigned problem_offset = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
+  const unsigned problem_idx = batch_start + problem_offset;
+
+  if(problem_offset >= batch_size)
+    return;
 
   DeviceProblem<W> problem;
   problem.known_on = BitBoard<W>::load(stack->problems[problem_idx].known_on.data());
