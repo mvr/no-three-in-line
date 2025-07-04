@@ -400,9 +400,6 @@ template <unsigned N, unsigned W>
 _DI_ BitBoard<W>
 ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
                               cuda::std::pair<unsigned, unsigned> q) {
-  if (p.first == q.first || p.second == q.second)
-    return BitBoard<W>();
-
   if (p.second > q.second)
     cuda::std::swap(p, q);
 
@@ -411,16 +408,8 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
   // Recall div_gcd_table[x][y] = x / gcd(x, y)
   const unsigned first_div = div_gcd_table[std::abs(delta.first)][delta.second];
   const unsigned second_div = div_gcd_table[delta.second][std::abs(delta.first)];
-  const bool factor_1 = delta.second == second_div;
   delta.first = (delta.first < 0 ? -1 : 1) * first_div;
   delta.second = second_div;
-
-  bool smaller_oob = ((int)p.first < delta.first) || (p.second < delta.second);
-  bool larger_oob = factor_1
-    && ((q.first + delta.first >= N) || (q.second + delta.second >= N));
-
-  if(smaller_oob && larger_oob)
-    return BitBoard<W>();
 
   unsigned p_quo = p.second / delta.second;
   unsigned p_rem = p.second % delta.second;
