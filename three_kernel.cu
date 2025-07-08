@@ -144,7 +144,17 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
     return;
   }
 
-  auto [row, _] = board.most_constrained_row();
+
+  auto [row, row_unknown] = board.most_constrained_row();
+  if (row_unknown <= COL_BRANCH_THRESHOLD) {
+    resolve_outcome<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
+    return;
+  }
+  auto [col, col_unknown] = board.most_constrained_col();
+  if (col_unknown <= COL_BRANCH_THRESHOLD) {
+    resolve_outcome<N, W>(board, Axis::Vertical, col, stack, solution_buffer);
+    return;
+  }
 
   resolve_outcome<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
 }
