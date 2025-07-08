@@ -6,12 +6,6 @@
 #include "parsing.hpp"
 #include "board.cu"
 
-template<unsigned W>
-using board_t = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
-
-template<unsigned W>
-using row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
-
 enum class SymmetryTransformType {
   ROTATE_90,
   ROTATE_180,
@@ -23,7 +17,7 @@ enum class SymmetryTransformType {
 };
 
 template <unsigned W>
-__global__ void symmetry_transform_kernel(row_t<W> *input_board_data, row_t<W> *output_board_data, SymmetryTransformType transform_type) {
+__global__ void symmetry_transform_kernel(board_row_t<W> *input_board_data, board_row_t<W> *output_board_data, SymmetryTransformType transform_type) {
   BitBoard<W> input_board = BitBoard<W>::load(input_board_data);
   BitBoard<W> result_board;
 
@@ -55,16 +49,16 @@ __global__ void symmetry_transform_kernel(row_t<W> *input_board_data, row_t<W> *
 
 template <unsigned W>
 void test_symmetry_transform(const std::string &input_rle, const std::string &expected_rle, SymmetryTransformType transform_type) {
-  row_t<W> *d_input, *d_output;
-  board_t<W> h_output;
+  board_row_t<W> *d_input, *d_output;
+  board_array_t<W> h_output;
 
-  cudaMalloc((void**) &d_input, W * sizeof(row_t<W>));
-  cudaMemcpy(d_input, parse_rle<W>(input_rle).data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
+  cudaMalloc((void**) &d_input, W * sizeof(board_row_t<W>));
+  cudaMemcpy(d_input, parse_rle<W>(input_rle).data(), W * sizeof(board_row_t<W>), cudaMemcpyHostToDevice);
 
-  cudaMalloc((void**) &d_output, W * sizeof(row_t<W>));
+  cudaMalloc((void**) &d_output, W * sizeof(board_row_t<W>));
 
   symmetry_transform_kernel<W><<<1, W>>>(d_input, d_output, transform_type);
-  cudaMemcpy(h_output.data(), d_output, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_output.data(), d_output, W * sizeof(board_row_t<W>), cudaMemcpyDeviceToHost);
 
   EXPECT_EQ(expected_rle, (to_rle<W, W>(h_output)));
 

@@ -56,10 +56,9 @@ __device__ bool solution_buffer_push(SolutionBuffer<W> *buffer, BitBoard<W> &sol
 }
 
 template <unsigned N, unsigned W>
-__device__ void resolve_outcome_device(const ThreeBoard<N, W> board, Axis axis, unsigned ix, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
-  using row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
-  
-  row_t line_known_on, line_known_off;
+__device__ void resolve_outcome(const ThreeBoard<N, W> board, Axis axis, unsigned ix, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
+
+  board_row_t<W> line_known_on, line_known_off;
   if (axis == Axis::Horizontal) {
     line_known_on = board.known_on.row(ix);
     line_known_off = board.known_off.row(ix);
@@ -68,7 +67,7 @@ __device__ void resolve_outcome_device(const ThreeBoard<N, W> board, Axis axis, 
     line_known_off = board.known_off.column(ix);
   }
 
-  row_t remaining = ~line_known_on & ~line_known_off & (((row_t)1 << N) - 1);
+  board_row_t<W> remaining = ~line_known_on & ~line_known_off & (((board_row_t<W>)1 << N) - 1);
   unsigned on_count = popcount<W>(line_known_on);
 
   auto make_cell = [&](unsigned c) {
@@ -191,9 +190,9 @@ int solve_with_device_stack() {
     cudaMemcpy(&solution_count, &d_solution_buffer->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
     
     if (solution_count > 0) {
-      std::vector<typename SolutionBuffer<W>::ArrayType> solutions(solution_count);
+      std::vector<board_array_t<W>> solutions(solution_count);
       for (unsigned i = 0; i < solution_count; i++) {
-        cudaMemcpy(&solutions[i], &d_solution_buffer->solutions[i], sizeof(typename SolutionBuffer<W>::ArrayType), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&solutions[i], &d_solution_buffer->solutions[i], sizeof(board_array_t<W>), cudaMemcpyDeviceToHost);
         std::cout << to_rle<N, W>(solutions[i]) << std::endl;
       }
       

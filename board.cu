@@ -7,10 +7,7 @@
 
 template<unsigned W>
 struct BitBoard {
-  using state_t = std::conditional_t<W == 64, uint4, uint32_t>;
-  using row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
-  
-  state_t state;
+  board_state_t<W> state;
 
   _DI_ BitBoard() {
     if constexpr (W == 32) {
@@ -20,7 +17,7 @@ struct BitBoard {
     }
   }
   
-  _DI_ explicit BitBoard(state_t initial_state) : state(initial_state) {}
+  _DI_ explicit BitBoard(board_state_t<W> initial_state) : state(initial_state) {}
   
   _DI_ static BitBoard solid() {
     if constexpr (W == 32) {
@@ -30,8 +27,8 @@ struct BitBoard {
     }
   }
 
-  [[nodiscard]] _DI_ static BitBoard load(const row_t *data);
-  _DI_ void save(row_t *data) const;
+  [[nodiscard]] _DI_ static BitBoard load(const board_row_t<W> *data);
+  _DI_ void save(board_row_t<W> *data) const;
 
   _DI_ bool operator==(BitBoard other) const { return (*this ^ other).empty(); }
   _DI_ bool operator<(BitBoard other) const;
@@ -92,8 +89,8 @@ struct BitBoard {
     }
   }
 
-  _DI_ row_t row(int y) const;
-  _DI_ row_t column(int x) const;
+  _DI_ board_row_t<W> row(int y) const;
+  _DI_ board_row_t<W> column(int x) const;
   _DI_ bool get(int x, int y) const;
   _DI_ bool get(cuda::std::pair<int, int> cell) const { return get(cell.first, cell.second); }
   _DI_ void set(int x, int y);
@@ -129,7 +126,7 @@ struct BitBoard {
 };
 
 template<unsigned W>
-_DI_ BitBoard<W> BitBoard<W>::load(const row_t *in) {
+_DI_ BitBoard<W> BitBoard<W>::load(const board_row_t<W> *in) {
   if constexpr (W == 32) {
     return BitBoard(in[threadIdx.x & 31]);
   } else {
@@ -140,7 +137,7 @@ _DI_ BitBoard<W> BitBoard<W>::load(const row_t *in) {
 }
 
 template<unsigned W>
-_DI_ void BitBoard<W>::save(row_t *out) const {
+_DI_ void BitBoard<W>::save(board_row_t<W> *out) const {
   if constexpr (W == 32) {
     out[threadIdx.x & 31] = state;
   } else {
@@ -150,7 +147,7 @@ _DI_ void BitBoard<W>::save(row_t *out) const {
 }
 
 template<unsigned W>
-_DI_ typename BitBoard<W>::row_t BitBoard<W>::row(int y) const {
+_DI_ board_row_t<W> BitBoard<W>::row(int y) const {
   if constexpr (W == 32) {
     return __shfl_sync(0xffffffff, state, y);
   } else {
@@ -169,7 +166,7 @@ _DI_ typename BitBoard<W>::row_t BitBoard<W>::row(int y) const {
 }
 
 template<unsigned W>
-_DI_ typename BitBoard<W>::row_t BitBoard<W>::column(int x) const {
+_DI_ board_row_t<W> BitBoard<W>::column(int x) const {
   if constexpr (W == 32) {
     return __ballot_sync(0xffffffff, state & (1<<x));
   } else {
@@ -199,8 +196,8 @@ _DI_ typename BitBoard<W>::row_t BitBoard<W>::column(int x) const {
 
 template<unsigned W>
 _DI_ bool BitBoard<W>::get(int x, int y) const {
-  row_t r = row(y);
-  return (r & ((row_t)1 << x)) != 0;
+  board_row_t<W> r = row(y);
+  return (r & ((board_row_t<W>)1 << x)) != 0;
 }
 
 template<unsigned W>

@@ -525,7 +525,7 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
   if (on_count == 0 && unknown_count > SOFT_BRANCH_2_THRESHOLD) return;
 
   ThreeBoard<N, W> common(BitBoard<W>::solid(), BitBoard<W>::solid());
-  typename BitBoard<W>::row_t remaining = ~row_known_on & ~row_known_off & (((typename BitBoard<W>::row_t)1 << N) - 1);
+  board_row_t<W> remaining = ~row_known_on & ~row_known_off & (((board_row_t<W>)1 << N) - 1);
 
   auto make_cell = [&](unsigned c) {
     return (d == Axis::Horizontal) ? cuda::std::pair<unsigned, unsigned>{c, r} : cuda::std::pair<unsigned, unsigned>{r, c};
@@ -552,11 +552,11 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
 
     auto row_known_on2 = (d == Axis::Horizontal) ? subBoard.known_on.row(r) : subBoard.known_on.column(r);
     auto row_known_off2 = (d == Axis::Horizontal) ? subBoard.known_off.row(r) : subBoard.known_off.column(r);
-    typename BitBoard<W>::row_t remaining2 =
+    board_row_t<W> remaining2 =
       remaining &
       ~row_known_on2 & ~row_known_off2 &
-      ~((typename BitBoard<W>::row_t)1 << find_first_set<W>(remaining)) &
-      (((typename BitBoard<W>::row_t)1 << N) - 1);
+      ~((board_row_t<W>)1 << find_first_set<W>(remaining)) &
+      (((board_row_t<W>)1 << N) - 1);
 
     if (remaining2 == 0) {
       common.known_on &= subBoard.known_on;
@@ -659,9 +659,9 @@ ThreeBoard<N, W>::most_constrained_col() const {
   unsigned min_unknown = std::numeric_limits<unsigned>::max();
 
   for (unsigned c = 0; c < N; c++) {
-    typename BitBoard<W>::row_t col_known_on = known_on.column(c);
-    typename BitBoard<W>::row_t col_known_off = known_off.column(c);
-    typename BitBoard<W>::row_t col_known = col_known_on | col_known_off;
+    board_row_t<W> col_known_on = known_on.column(c);
+    board_row_t<W> col_known_off = known_off.column(c);
+    board_row_t<W> col_known = col_known_on | col_known_off;
 
     unsigned unknown = N - popcount<W>(col_known);
 

@@ -2,8 +2,20 @@
 
 #include <stdint.h>
 #include <type_traits>
+#include <array>
 
 #include "params.hpp"
+
+template <unsigned W>
+using board_row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
+
+template <unsigned W>
+using board_array_t = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
+
+#ifdef __CUDACC__
+template <unsigned W>
+using board_state_t = std::conditional_t<W == 64, uint4, uint32_t>;
+#endif
 
 enum struct Axis {
   Vertical,
@@ -31,7 +43,7 @@ enum class LexStatus {
 #endif
 
 template<unsigned W>
-_HD_ int popcount(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
+_HD_ int popcount(board_row_t<W> x) {
   if constexpr (W == 32) {
     #ifdef __CUDACC__
     return __popc(x);
@@ -48,7 +60,7 @@ _HD_ int popcount(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
 }
 
 template<unsigned W>
-_HD_ int find_first_set(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
+_HD_ int find_first_set(board_row_t<W> x) {
   if constexpr (W == 32) {
     #ifdef __CUDACC__
     return __ffs(x) - 1;
@@ -65,7 +77,7 @@ _HD_ int find_first_set(typename std::conditional_t<W == 64, uint64_t, uint32_t>
 }
 
 template<unsigned W>
-_HD_ int count_trailing_zeros(typename std::conditional_t<W == 64, uint64_t, uint32_t> x) {
+_HD_ int count_trailing_zeros(board_row_t<W> x) {
   if constexpr (W == 32) {
     #ifdef __CUDACC__
     return __clz(__brev(x));

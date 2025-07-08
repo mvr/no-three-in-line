@@ -7,28 +7,21 @@
 #include "board.cu"
 #include "three_board.cu"
 
-// Common type aliases for W-dependent types
-template<unsigned W>
-using board_t = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
-
-template<unsigned W>
-using row_t = std::conditional_t<W == 64, uint64_t, uint32_t>;
-
 template <unsigned N, unsigned W>
-__global__ void three_bounds_kernel(row_t<W> *a) {
+__global__ void three_bounds_kernel(board_row_t<W> *a) {
   BitBoard<W> bds = ThreeBoard<N, W>::bounds();
   bds.save(a);
 }
 
 template <unsigned N, unsigned W>
-void test_bounds(const board_t<W> &expected) {
-  row_t<W> *d_a;
-  board_t<W> h_a;
+void test_bounds(const board_array_t<W> &expected) {
+  board_row_t<W> *d_a;
+  board_array_t<W> h_a;
 
-  cudaMalloc((void**) &d_a, W * sizeof(row_t<W>));
+  cudaMalloc((void**) &d_a, sizeof(board_array_t<W>));
 
   three_bounds_kernel<N, W><<<1, 32>>>(d_a);
-  cudaMemcpy(h_a.data(), d_a, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_a.data(), d_a, sizeof(board_array_t<W>), cudaMemcpyDeviceToHost);
 
   EXPECT_EQ((to_rle<N, W>(expected)), (to_rle<N, W>(h_a)));
 
@@ -53,7 +46,7 @@ TEST(ThreeBoard, Bounds) {
 }
 
 template <unsigned N, unsigned W>
-__global__ void force_horiz_kernel(row_t<W> *known_on, row_t<W> *known_off) {
+__global__ void force_horiz_kernel(board_row_t<W> *known_on, board_row_t<W> *known_off) {
   ThreeBoard<N, W> board;
   board.known_on = BitBoard<W>::load(known_on);
   board.known_off = BitBoard<W>::load(known_off);
@@ -63,7 +56,7 @@ __global__ void force_horiz_kernel(row_t<W> *known_on, row_t<W> *known_off) {
 }
 
 template <unsigned N, unsigned W>
-__global__ void force_vert_kernel(row_t<W> *known_on, row_t<W> *known_off) {
+__global__ void force_vert_kernel(board_row_t<W> *known_on, board_row_t<W> *known_off) {
   ThreeBoard<N, W> board;
   board.known_on = BitBoard<W>::load(known_on);
   board.known_off = BitBoard<W>::load(known_off);
@@ -73,16 +66,16 @@ __global__ void force_vert_kernel(row_t<W> *known_on, row_t<W> *known_off) {
 }
 
 template <unsigned N, unsigned W, Axis type>
-void test_force(const board_t<W> &input_known_on, const board_t<W> &input_known_off,
-                const board_t<W> &expected_known_on, const board_t<W> &expected_known_off) {
-  row_t<W> *d_known_on, *d_known_off;
-  board_t<W> h_known_on, h_known_off;
+void test_force(const board_array_t<W> &input_known_on, const board_array_t<W> &input_known_off,
+                const board_array_t<W> &expected_known_on, const board_array_t<W> &expected_known_off) {
+  board_row_t<W> *d_known_on, *d_known_off;
+  board_array_t<W> h_known_on, h_known_off;
 
-  cudaMalloc((void**) &d_known_on, W * sizeof(row_t<W>));
-  cudaMemcpy(d_known_on, input_known_on.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
+  cudaMalloc((void**) &d_known_on, sizeof(board_array_t<W>));
+  cudaMemcpy(d_known_on, input_known_on.data(), sizeof(board_array_t<W>), cudaMemcpyHostToDevice);
 
-  cudaMalloc((void**) &d_known_off, W * sizeof(row_t<W>));
-  cudaMemcpy(d_known_off, input_known_off.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
+  cudaMalloc((void**) &d_known_off, sizeof(board_array_t<W>));
+  cudaMemcpy(d_known_off, input_known_off.data(), sizeof(board_array_t<W>), cudaMemcpyHostToDevice);
 
   if constexpr (type == Axis::Horizontal) {
     force_horiz_kernel<N, W><<<1, 64>>>(d_known_on, d_known_off);
@@ -90,8 +83,8 @@ void test_force(const board_t<W> &input_known_on, const board_t<W> &input_known_
     force_vert_kernel<N, W><<<1, 32>>>(d_known_on, d_known_off);
   }
 
-  cudaMemcpy(h_known_on.data(), d_known_on, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
-  cudaMemcpy(h_known_off.data(), d_known_off, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_known_on.data(), d_known_on, sizeof(board_array_t<W>), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_known_off.data(), d_known_off, sizeof(board_array_t<W>), cudaMemcpyDeviceToHost);
 
   EXPECT_EQ((to_rle<N, W>(expected_known_on)), (to_rle<N, W>(h_known_on)));
   EXPECT_EQ((to_rle<N, W>(expected_known_off)), (to_rle<N, W>(h_known_off)));
@@ -125,19 +118,19 @@ TEST(ThreeBoard, ForceHoriVert) {
 
 
 // template <unsigned N, unsigned W>
-// __global__ void line_kernel(row_t<W> *a, cuda::std::pair<int, int> p, cuda::std::pair<int, int> q) {
+// __global__ void line_kernel(board_row_t<W> *a, cuda::std::pair<int, int> p, cuda::std::pair<int, int> q) {
 //   BitBoard<W> b = ThreeBoard<N, W>::line({(unsigned)p.first, (unsigned)p.second}, {(unsigned)q.first, (unsigned)q.second}) & ThreeBoard<N, W>::bounds();
 //   b.save(a);
 // }
 
 // template <unsigned N, unsigned W>
-// void test_line(cuda::std::pair<int, int> p, cuda::std::pair<int, int> q, const board_t<W> &expected) {
-//   row_t<W> *d_a;
-//   board_t<W> h_a;
+// void test_line(cuda::std::pair<int, int> p, cuda::std::pair<int, int> q, const board_array_t<W> &expected) {
+//   board_row_t<W> *d_a;
+//   board_array_t<W> h_a;
 
-//   cudaMalloc((void**) &d_a, W * sizeof(row_t<W>));
+//   cudaMalloc((void**) &d_a, sizeof(board_array_t<W>));
 //   line_kernel<N, W><<<1, 32>>>(d_a, p, q);
-//   cudaMemcpy(h_a.data(), d_a, W * sizeof(row_t<W>), cudaMemcpyDeviceToHost);
+//   cudaMemcpy(h_a.data(), d_a, sizeof(board_array_t<W>), cudaMemcpyDeviceToHost);
 
 //   EXPECT_EQ((to_rle<N, W>(expected)), (to_rle<N, W>(h_a)));
 //   cudaFree(d_a);
@@ -166,7 +159,7 @@ TEST(ThreeBoard, ForceHoriVert) {
 
 
 template <unsigned N, unsigned W>
-__global__ void consistent_kernel(row_t<W> *a, bool *result) {
+__global__ void consistent_kernel(board_row_t<W> *a, bool *result) {
   ThreeBoard<N, W> board;
   board.known_on = BitBoard<W>::load(a);
   board.eliminate_all_lines();
@@ -176,12 +169,12 @@ __global__ void consistent_kernel(row_t<W> *a, bool *result) {
 }
 
 template <unsigned N, unsigned W>
-void test_consistent(const board_t<W> &input_known_on, bool expected_consistent) {
-  row_t<W> *d_a;
+void test_consistent(const board_array_t<W> &input_known_on, bool expected_consistent) {
+  board_row_t<W> *d_a;
   bool *d_result;
 
-  cudaMalloc((void**) &d_a, W * sizeof(row_t<W>));
-  cudaMemcpy(d_a, input_known_on.data(), W * sizeof(row_t<W>), cudaMemcpyHostToDevice);
+  cudaMalloc((void**) &d_a, sizeof(board_array_t<W>));
+  cudaMemcpy(d_a, input_known_on.data(), sizeof(board_array_t<W>), cudaMemcpyHostToDevice);
   cudaMalloc((void**) &d_result, sizeof(bool));
 
   consistent_kernel<N, W><<<1, 32>>>(d_a, d_result);

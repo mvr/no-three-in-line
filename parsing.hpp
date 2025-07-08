@@ -3,6 +3,8 @@
 #include <string>
 #include <sstream>
 
+#include "common.hpp"
+
 template<unsigned N>
 std::string generic_to_rle(auto&& cellchar, bool flushtrailing = false) {
   std::stringstream result;
@@ -113,10 +115,9 @@ template<typename T> T generic_parse_rle(const std::string &rle, auto&& interpre
   return result;
 }
 
-template<unsigned W>
-std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> parse_rle(const std::string &rle) {
-  using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
-  return generic_parse_rle<ArrayType>(rle, [&](ArrayType &result, char ch, int x, int y) -> void {
+template <unsigned W>
+board_array_t<W> parse_rle(const std::string &rle) {
+  return generic_parse_rle<board_array_t<W>>(rle, [&](board_array_t<W> &result, char ch, int x, int y) -> void {
     if (ch == 'o') {
       if constexpr (W == 32) {
         result[y] |= (1U << x);
@@ -128,7 +129,7 @@ std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> 
 }
 
 template<unsigned N, unsigned W>
-std::string to_rle(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &board) {
+std::string to_rle(const board_array_t<W> &board) {
   return generic_to_rle<N>([&](int x, int y) -> char {
     if constexpr (W == 32) {
       return (board[y] & (1U << x)) ? 'o' : 'b';
@@ -140,13 +141,10 @@ std::string to_rle(const std::conditional_t<W == 64, std::array<uint64_t, 64>, s
 
 
 template<unsigned W>
-std::pair<std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>, 
-          std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>> 
-parse_rle_history(const std::string &rle) {
-  using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
-  ArrayType known_on = {};
-  ArrayType known_off = {};
-  generic_parse_rle<ArrayType>(rle, [&](ArrayType &result, char ch, int x, int y) -> void {
+std::pair<board_array_t<W>, board_array_t<W>> parse_rle_history(const std::string &rle) {
+  board_array_t<W> known_on = {};
+  board_array_t<W> known_off = {};
+  generic_parse_rle<board_array_t<W>>(rle, [&](board_array_t<W> &result, char ch, int x, int y) -> void {
     if (ch == 'A') {
       if constexpr (W == 32) {
         known_on[y] |= (1U << x);
@@ -166,8 +164,8 @@ parse_rle_history(const std::string &rle) {
 }
 
 template<unsigned N, unsigned W>
-std::string to_rle_history(const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &known_on,
-                           const std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>> &known_off) {
+std::string to_rle_history(const board_array_t<W> &known_on,
+                           const board_array_t<W> &known_off) {
   return generic_to_rle<N>([&](int x, int y) -> char {
     bool is_known_on, is_known_off;
     if constexpr (W == 32) {

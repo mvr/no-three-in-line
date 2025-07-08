@@ -7,10 +7,9 @@
 
 template<unsigned W>
 struct Problem {
-  using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
-  ArrayType known_on;
-  ArrayType known_off;
-  ArrayType seed; // The newly placed, unpropagated ONs
+  board_array_t<W> known_on;
+  board_array_t<W> known_off;
+  board_array_t<W> seed; // The newly placed, unpropagated ONs
 };
 
 template <unsigned W>
@@ -22,8 +21,7 @@ struct DeviceStack {
 
 template <unsigned W>
 struct SolutionBuffer {
-  using ArrayType = std::conditional_t<W == 64, std::array<uint64_t, 64>, std::array<uint32_t, 32>>;
-  ArrayType solutions[SOLUTION_BUFFER_CAPACITY];
+  board_array_t<W> solutions[SOLUTION_BUFFER_CAPACITY];
   unsigned size;
 };
 
