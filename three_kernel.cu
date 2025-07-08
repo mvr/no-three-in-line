@@ -108,7 +108,7 @@ __device__ void resolve_outcome(const ThreeBoard<N, W> board, Axis axis, unsigne
 template <unsigned N, unsigned W>
 __global__ void initialize_stack_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
   ThreeBoard<N, W> board;
-  resolve_outcome_device<N, W>(board, Axis::Horizontal, 0, stack, solution_buffer);
+  resolve_outcome<N, W>(board, Axis::Horizontal, N/2, stack, solution_buffer);
 }
 
 template <unsigned N, unsigned W>
@@ -146,7 +146,7 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
 
   auto [row, _] = board.most_constrained_row();
 
-  resolve_outcome_device<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
+  resolve_outcome<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
 }
 
 template <unsigned N, unsigned W>
