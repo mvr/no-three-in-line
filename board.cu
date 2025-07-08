@@ -123,6 +123,8 @@ struct BitBoard {
   
   template<unsigned N>
   _DI_ bool is_canonical_subsquare() const;
+
+  _DI_ void print() const;
 };
 
 template<unsigned W>
@@ -622,4 +624,54 @@ _DI_ bool BitBoard<W>::is_canonical_subsquare<N>() const {
   if (anti_diag < *this) return false;
   
   return true;
+}
+
+template<unsigned W>
+_DI_ void BitBoard<W>::print() const {
+  unsigned eol_count = 0;
+
+  for (unsigned j = 0; j < W; j++) {
+    bool s = get(0, j);
+    char last_val = s ? 'o' : 'b';
+    unsigned run_count = 0;
+
+    for (unsigned i = 0; i < W; i++) {
+      bool s = get(i, j);
+      char val = s ? 'o' : 'b';
+
+      // Flush linefeeds if we find a live cell
+      if (val != 'b' && eol_count > 0) {
+        if (eol_count > 1)
+          if ((threadIdx.x & 31) == 0) printf("%d", eol_count);
+
+        if ((threadIdx.x & 31) == 0) printf("$");
+
+        eol_count = 0;
+      }
+
+      // Flush current run if val changes
+      if (val != last_val) {
+        if (run_count > 1)
+            if ((threadIdx.x & 31) == 0) printf("%d", run_count);
+        if ((threadIdx.x & 31) == 0) printf("%c", last_val);
+        run_count = 0;
+      }
+
+      run_count++;
+      last_val = val;
+    }
+
+    // Flush run of live cells at end of line
+    if (last_val != 'b') {
+      if (run_count > 1)
+        if ((threadIdx.x & 31) == 0) printf("%d", run_count);
+
+      if ((threadIdx.x & 31) == 0) printf("%c", last_val);
+
+      run_count = 0;
+    }
+
+    eol_count++;
+  }
+  if ((threadIdx.x & 31) == 0) printf("!\n");
 }
