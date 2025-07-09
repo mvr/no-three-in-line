@@ -563,8 +563,11 @@ _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
       common.known_off &= subBoard.known_off;
     }
 
-    for (; remaining2; remaining2 &= remaining2 - 1) {
+    unsigned remaining2_count = popcount<W>(remaining2);
+
+    for (; remaining2_count>1; remaining2_count--, remaining2 &= remaining2 - 1) {
       auto cell2 = make_cell(find_first_set<W>(remaining2));
+
       ThreeBoard<N, W> subBoard2 = subBoard;
       subBoard2.known_on.set(cell2);
       subBoard2.eliminate_all_lines(cell2);

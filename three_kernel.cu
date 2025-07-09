@@ -91,7 +91,8 @@ __device__ void resolve_outcome(const ThreeBoard<N, W> board, Axis axis, unsigne
 
     DeviceProblem<W> tried_problem = {board.known_on, board.known_off, {}};
 
-    for (; remaining; remaining &= remaining - 1) {
+    unsigned remaining_count = popcount<W>(remaining);
+    for (; remaining_count > 1; remaining_count--, remaining &= remaining - 1) {
       auto cell = make_cell(find_first_set<W>(remaining));
 
       DeviceProblem<W> problem = tried_problem;
