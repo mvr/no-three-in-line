@@ -289,30 +289,32 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_horiz() const {
   return result;
 }
 
+template <unsigned W>
 struct BinaryCount {
-  uint32_t bit0;
-  uint32_t bit1;
-  uint32_t overflow;
+  board_row_t<W> bit0;
+  board_row_t<W> bit1;
+  board_row_t<W> overflow;
 
   _DI_ BinaryCount operator+(const BinaryCount other) const {
-    const uint32_t out0 = bit0 ^ other.bit0;
-    const uint32_t carry0 = bit0 & other.bit0;
+    const board_row_t<W> out0 = bit0 ^ other.bit0;
+    const board_row_t<W> carry0 = bit0 & other.bit0;
 
-    const uint32_t out1 = bit1 ^ other.bit1 ^ carry0;
-    const uint32_t carry1 = (bit1 & other.bit1) | (carry0 & (bit1 | other.bit1));
-    const uint32_t out_overflow = carry1 | overflow | other.overflow;
+    const board_row_t<W> out1 = bit1 ^ other.bit1 ^ carry0;
+    const board_row_t<W> carry1 = (bit1 & other.bit1) | (carry0 & (bit1 | other.bit1));
+    const board_row_t<W> out_overflow = carry1 | overflow | other.overflow;
 
     return {out0, out1, out_overflow};
   }
   _DI_ void operator+=(const BinaryCount other) { *this = *this + other; };
 };
 
-_DI_ BinaryCount count_vertically(const uint32_t value) {
-  BinaryCount result = {value, 0, 0};
+template <unsigned W>
+_DI_ BinaryCount<W> count_vertically(const board_row_t<W> value) {
+  BinaryCount<W> result = {value, 0, 0};
 
   #pragma unroll
   for (int offset = 16; offset > 0; offset /= 2) {
-    BinaryCount other;
+    BinaryCount<W> other;
     other.bit0 = __shfl_down_sync(0xffffffff, result.bit0, offset);
     other.bit1 = __shfl_down_sync(0xffffffff, result.bit1, offset);
     other.overflow = __shfl_down_sync(0xffffffff, result.overflow, offset);
@@ -332,7 +334,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
   ThreeBoard<N, W> result = *this;
 
   if constexpr (W == 32) {
-    const BinaryCount on_count = count_vertically(known_on.state);
+    const BinaryCount on_count = count_vertically<32>(known_on.state);
     const uint32_t on_count_eq_2 = ~on_count.overflow & on_count.bit1 & ~on_count.bit0;
     result.known_off.state |= ~known_on.state & on_count_eq_2;
 
@@ -342,7 +344,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
 
     BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
 
-    const BinaryCount not_off_count = count_vertically(notKnownOff.state);
+    const BinaryCount not_off_count = count_vertically<32>(notKnownOff.state);
     const uint32_t not_off_count_eq_2 = ~not_off_count.overflow & not_off_count.bit1 & ~not_off_count.bit0;
     result.known_on.state |= ~known_off.state & not_off_count_eq_2;
 
@@ -350,7 +352,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     result.known_on.state |= not_off_count_lt_2;
     result.known_off.state |= not_off_count_lt_2;
   } else {
-    const BinaryCount on_count_xz = count_vertically(known_on.state.x) + count_vertically(known_on.state.z);
+    const BinaryCount on_count_xz = count_vertically<32>(known_on.state.x) + count_vertically<32>(known_on.state.z);
     const uint32_t on_count_xz_eq_2 = ~on_count_xz.overflow & on_count_xz.bit1 & ~on_count_xz.bit0;
     result.known_off.state.x |= ~known_on.state.x & on_count_xz_eq_2;
     result.known_off.state.z |= ~known_on.state.z & on_count_xz_eq_2;
@@ -359,7 +361,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     result.known_on.state.x |= on_count_xz_gt_2;
     result.known_off.state.x |= on_count_xz_gt_2;
 
-    const BinaryCount on_count_yw = count_vertically(known_on.state.y) + count_vertically(known_on.state.w);
+    const BinaryCount on_count_yw = count_vertically<32>(known_on.state.y) + count_vertically<32>(known_on.state.w);
     const uint32_t on_count_yw_eq_2 = ~on_count_yw.overflow & on_count_yw.bit1 & ~on_count_yw.bit0;
     result.known_off.state.y |= ~known_on.state.y & on_count_yw_eq_2;
     result.known_off.state.w |= ~known_on.state.w & on_count_yw_eq_2;
@@ -370,7 +372,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
 
     BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
 
-    const BinaryCount not_off_count_xz = count_vertically(notKnownOff.state.x) + count_vertically(notKnownOff.state.z);
+    const BinaryCount not_off_count_xz = count_vertically<32>(notKnownOff.state.x) + count_vertically<32>(notKnownOff.state.z);
     const uint32_t not_off_count_xz_eq_2 = ~not_off_count_xz.overflow & not_off_count_xz.bit1 & ~not_off_count_xz.bit0;
     result.known_on.state.x |= ~known_off.state.x & not_off_count_xz_eq_2;
     result.known_on.state.z |= ~known_off.state.z & not_off_count_xz_eq_2;
@@ -379,7 +381,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     result.known_on.state.x |= not_off_count_xz_lt_2;
     result.known_off.state.x |= not_off_count_xz_lt_2;
 
-    const BinaryCount not_off_count_yw = count_vertically(notKnownOff.state.y) + count_vertically(notKnownOff.state.w);
+    const BinaryCount not_off_count_yw = count_vertically<32>(notKnownOff.state.y) + count_vertically<32>(notKnownOff.state.w);
     const uint32_t not_off_count_yw_eq_2 = ~not_off_count_yw.overflow & not_off_count_yw.bit1 & ~not_off_count_yw.bit0;
     result.known_on.state.y |= ~known_off.state.y & not_off_count_yw_eq_2;
     result.known_on.state.w |= ~known_off.state.w & not_off_count_yw_eq_2;
