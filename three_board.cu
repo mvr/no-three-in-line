@@ -26,6 +26,8 @@ struct ThreeBoard {
   _DI_ ThreeBoard<N, W> force_orthogonal_vert() const;
   _DI_ ThreeBoard<N, W> force_orthogonal() const { return force_orthogonal_horiz().force_orthogonal_vert(); }
 
+  _DI_ BitBoard<W> vulnerable() const;
+
   _DI_ BitBoard<W> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<W> seed);
@@ -394,6 +396,98 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
   const BitBoard<W> bds = ThreeBoard<N, W>::bounds();
   result.known_on &= bds;
   result.known_off &= bds;
+
+  return result;
+}
+
+template <unsigned N, unsigned W>
+_DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const{
+  BitBoard<W> result;
+
+  if constexpr (W == 32) {
+    // Vulnerable horizontally
+    {
+      unsigned on_pop = popcount<32>(known_on.state);
+      unsigned off_pop = popcount<32>(known_off.state);
+      unsigned unknown_pop = N - on_pop - off_pop;
+      bool vulnerable_row =
+        (on_pop == 1 && unknown_pop == 2) || (on_pop == 0 && unknown_pop == 3);
+
+      if (vulnerable_row)
+        result.state = ~(board_row_t<W>)0;
+    }
+
+    // Vulnerable vertically
+    {
+      const BinaryCount<32> on_count = count_vertically<32>(known_on.state);
+      BitBoard<32> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
+      const BinaryCount<32> unknown_count = count_vertically<32>(unknown.state);
+
+      uint32_t vulnerable_column =
+          (on_count.bit0 & ~on_count.bit1 & ~on_count.overflow &
+           ~unknown_count.bit0 & unknown_count.bit1 & ~unknown_count.overflow)
+        | (~on_count.bit0 & ~on_count.bit1 & ~on_count.overflow &
+           unknown_count.bit0 & unknown_count.bit1 & ~unknown_count.overflow);
+
+      result.state |= vulnerable_column;
+    }
+  } else {
+    // Vulnerable horizontally
+    {
+      unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
+      unsigned off_pop_xy = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
+      unsigned unknown_pop_xy = N - on_pop_xy - off_pop_xy;
+      bool vulnerable_row_xy =
+        (on_pop_xy == 1 && unknown_pop_xy == 2) || (on_pop_xy == 0 && unknown_pop_xy == 3);
+
+      if (vulnerable_row_xy) {
+        result.state.x = ~(board_row_t<W>)0;
+        result.state.y = ~(board_row_t<W>)0;
+      }
+
+      unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
+      unsigned off_pop_zw = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
+      unsigned unknown_pop_zw = N - on_pop_zw - off_pop_zw;
+      bool vulnerable_row_zw =
+        (on_pop_zw == 1 && unknown_pop_zw == 2) || (on_pop_zw == 0 && unknown_pop_zw == 3);
+
+      if (vulnerable_row_zw) {
+        result.state.z = ~(board_row_t<W>)0;
+        result.state.w = ~(board_row_t<W>)0;
+      }
+    }
+
+    // Vulnerable vertically
+    {
+      BitBoard<64> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
+
+      const BinaryCount<32> on_count_xz = count_vertically<32>(known_on.state.x) + count_vertically<32>(known_on.state.z);
+      const BinaryCount<32> unknown_count_xz = count_vertically<32>(unknown.state.x) + count_vertically<32>(unknown.state.z);
+
+      uint32_t vulnerable_column_xz =
+          (on_count_xz.bit0 & ~on_count_xz.bit1 & ~on_count_xz.overflow &
+           ~unknown_count_xz.bit0 & unknown_count_xz.bit1 & ~unknown_count_xz.overflow)
+        | (~on_count_xz.bit0 & ~on_count_xz.bit1 & ~on_count_xz.overflow &
+           unknown_count_xz.bit0 & unknown_count_xz.bit1 & ~unknown_count_xz.overflow);
+
+      result.state.x |= vulnerable_column_xz;
+      result.state.z |= vulnerable_column_xz;
+
+      const BinaryCount<32> on_count_yw = count_vertically<32>(known_on.state.y) + count_vertically<32>(known_on.state.w);
+      const BinaryCount<32> unknown_count_yw = count_vertically<32>(unknown.state.y) + count_vertically<32>(unknown.state.w);
+
+      uint32_t vulnerable_column_yw =
+          (on_count_yw.bit0 & ~on_count_yw.bit1 & ~on_count_yw.overflow &
+           ~unknown_count_yw.bit0 & unknown_count_yw.bit1 & ~unknown_count_yw.overflow)
+        | (~on_count_yw.bit0 & ~on_count_yw.bit1 & ~on_count_yw.overflow &
+           unknown_count_yw.bit0 & unknown_count_yw.bit1 & ~unknown_count_yw.overflow);
+
+      result.state.y |= vulnerable_column_yw;
+      result.state.w |= vulnerable_column_yw;
+    }
+  }
+
+  result &= ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
 
   return result;
 }
