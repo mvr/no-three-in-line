@@ -570,6 +570,8 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
 template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
+  if (ps.empty())
+    return;
   for (auto p = ps.first_on(); !ps.empty();
        ps.erase(p), p = ps.first_on()) {
     BitBoard<W> qs = known_on & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
