@@ -34,6 +34,8 @@ struct ThreeBoard {
   _DI_ void eliminate_all_lines() { eliminate_all_lines(known_on); }
   _DI_ void propagate();
 
+  _DI_ void soft_branch_cell(cuda::std::pair<unsigned, unsigned> cell);
+  _DI_ void soft_branch_cells(BitBoard<W> cells);
   template<Axis d>
   _DI_ void soft_branch(unsigned row);
   _DI_ void soft_branch_all();
@@ -603,6 +605,49 @@ _DI_ void ThreeBoard<N, W>::propagate() {
     eliminate_all_lines(known_on & ~doneOns);
     doneOns = known_on;
   } while (*this != prev);
+}
+
+template <unsigned N, unsigned W>
+_DI_ void
+ThreeBoard<N, W>::soft_branch_cell(cuda::std::pair<unsigned, unsigned> cell) {
+  ThreeBoard<N, W> common(BitBoard<W>::solid(), BitBoard<W>::solid());
+
+  {
+    ThreeBoard<N, W> subBoard = *this;
+    subBoard.known_on.set(cell);
+    subBoard.eliminate_all_lines(cell);
+    subBoard.propagate();
+    if (subBoard.consistent()) {
+      common.known_on &= subBoard.known_on;
+      common.known_off &= subBoard.known_off;
+    }
+  }
+  {
+    ThreeBoard<N, W> subBoard = *this;
+    subBoard.known_off.set(cell);
+    subBoard.propagate();
+    if (subBoard.consistent()) {
+      common.known_on &= subBoard.known_on;
+      common.known_off &= subBoard.known_off;
+    }
+  }
+
+  known_on |= common.known_on;
+  known_off |= common.known_off;
+}
+
+template <unsigned N, unsigned W>
+_DI_ void
+ThreeBoard<N, W>::soft_branch_cells(BitBoard<W> ps) {
+  for (auto p = ps.first_on(); !ps.empty();
+       ps.erase(p), p = ps.first_on()) {
+    soft_branch_cell(p);
+
+    if (!consistent())
+      break;
+
+    ps &= ~known_on & ~known_off;
+  }
 }
 
 template <unsigned N, unsigned W>

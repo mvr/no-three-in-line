@@ -56,7 +56,7 @@ __device__ bool solution_buffer_push(SolutionBuffer<W> *buffer, BitBoard<W> &sol
 }
 
 template <unsigned N, unsigned W>
-__device__ void resolve_outcome(const ThreeBoard<N, W> board, Axis axis, unsigned ix, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
+__device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, unsigned ix, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
 
   board_row_t<W> line_known_on, line_known_off;
   if (axis == Axis::Horizontal) {
@@ -107,9 +107,26 @@ __device__ void resolve_outcome(const ThreeBoard<N, W> board, Axis axis, unsigne
 }
 
 template <unsigned N, unsigned W>
+__device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pair<unsigned, unsigned> cell, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
+  {
+    DeviceProblem<W> problem = {board.known_on, board.known_off, {}};
+    problem.known_on.set(cell);
+    problem.seed.set(cell);
+
+    stack_push(stack, problem);
+  }
+  {
+    DeviceProblem<W> problem = {board.known_on, board.known_off, {}};
+    problem.known_off.set(cell);
+
+    stack_push(stack, problem);
+  }
+}
+
+template <unsigned N, unsigned W>
 __global__ void initialize_stack_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
   ThreeBoard<N, W> board;
-  resolve_outcome<N, W>(board, Axis::Horizontal, N/2, stack, solution_buffer);
+  resolve_outcome_row<N, W>(board, Axis::Horizontal, N/2, stack, solution_buffer);
 }
 
 template <unsigned N, unsigned W>
@@ -131,7 +148,7 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
 
   board.eliminate_all_lines(problem.seed);
   board.propagate();
-  board.soft_branch_all();
+  board.soft_branch_cells(board.vulnerable());
 
   if (!board.consistent())
     return;
@@ -148,16 +165,16 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
 
   auto [row, row_unknown] = board.most_constrained_row();
   if (row_unknown <= COL_BRANCH_THRESHOLD) {
-    resolve_outcome<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
+    resolve_outcome_row<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
     return;
   }
   auto [col, col_unknown] = board.most_constrained_col();
   if (col_unknown <= COL_BRANCH_THRESHOLD) {
-    resolve_outcome<N, W>(board, Axis::Vertical, col, stack, solution_buffer);
+    resolve_outcome_row<N, W>(board, Axis::Vertical, col, stack, solution_buffer);
     return;
   }
 
-  resolve_outcome<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
+  resolve_outcome_row<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
 }
 
 template <unsigned N, unsigned W>
