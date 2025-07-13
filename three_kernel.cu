@@ -136,7 +136,6 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   board.known_on = problem.known_on;
   board.known_off = problem.known_off;
 
-  board.propagate();
   board.soft_branch_cells(board.vulnerable());
 
   if (!board.consistent())
