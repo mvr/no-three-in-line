@@ -15,7 +15,6 @@ template<unsigned W>
 struct DeviceProblem {
   BitBoard<W> known_on;
   BitBoard<W> known_off;
-  BitBoard<W> seed;
 };
 
 template <unsigned W>
@@ -33,7 +32,6 @@ __device__ bool stack_push(DeviceStack<W> *stack, const DeviceProblem<W> &proble
   
   problem.known_on.save(stack->problems[old_size].known_on.data());
   problem.known_off.save(stack->problems[old_size].known_off.data());
-  problem.seed.save(stack->problems[old_size].seed.data());
 
   return true;
 }
@@ -84,7 +82,7 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, uns
       sub_board.propagate();
 
       if(sub_board.consistent()) {
-        DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+        DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
         stack_push(stack, problem);
       }
     }
@@ -102,7 +100,7 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, uns
       sub_board.propagate();
 
       if(sub_board.consistent()) {
-        DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+        DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
         stack_push(stack, problem);
       }
 
@@ -119,7 +117,7 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
     sub_board.eliminate_all_lines(cell);
     sub_board.propagate();
     if(sub_board.consistent()) {
-      DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+      DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
     }
   }
@@ -128,7 +126,7 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
     sub_board.known_off.set(cell);
     sub_board.propagate();
     if(sub_board.consistent()) {
-      DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+      DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
     }
   }
@@ -151,13 +149,11 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   DeviceProblem<W> problem;
   problem.known_on = BitBoard<W>::load(stack->problems[problem_idx].known_on.data());
   problem.known_off = BitBoard<W>::load(stack->problems[problem_idx].known_off.data());
-  problem.seed = BitBoard<W>::load(stack->problems[problem_idx].seed.data());
 
   ThreeBoard<N, W> board;
-  board.known_on = problem.known_on | problem.seed;
+  board.known_on = problem.known_on;
   board.known_off = problem.known_off;
 
-  board.eliminate_all_lines(problem.seed);
   board.propagate();
   board.soft_branch_cells(board.vulnerable());
 
