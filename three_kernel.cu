@@ -78,30 +78,35 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, uns
     for (; remaining; remaining &= remaining - 1) {
       auto cell = make_cell(find_first_set<W>(remaining));
 
-      DeviceProblem<W> problem = {board.known_on, board.known_off, {}};
-      problem.known_on.set(cell);
-      problem.seed.set(cell);
+      ThreeBoard<N, W> sub_board = board;
+      sub_board.known_on.set(cell);
+      sub_board.eliminate_all_lines(cell);
+      sub_board.propagate();
 
-      stack_push(stack, problem);
+      if(sub_board.consistent()) {
+        DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+        stack_push(stack, problem);
+      }
     }
   }
 
   if (on_count == 0) {
-    row_t prev_offs = 0;
-
-    DeviceProblem<W> tried_problem = {board.known_on, board.known_off, {}};
-
+    ThreeBoard<N, W> tried_board = board;
     unsigned remaining_count = popcount<W>(remaining);
     for (; remaining_count > 1; remaining_count--, remaining &= remaining - 1) {
       auto cell = make_cell(find_first_set<W>(remaining));
 
-      DeviceProblem<W> problem = tried_problem;
-      problem.known_on.set(cell);
-      problem.seed.set(cell);
+      ThreeBoard<N, W> sub_board = tried_board;
+      sub_board.known_on.set(cell);
+      sub_board.eliminate_all_lines(cell);
+      sub_board.propagate();
 
-      stack_push(stack, problem);
+      if(sub_board.consistent()) {
+        DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+        stack_push(stack, problem);
+      }
 
-      tried_problem.known_off.set(cell);
+      tried_board.known_off.set(cell);
     }
   }
 }
@@ -109,17 +114,23 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, uns
 template <unsigned N, unsigned W>
 __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pair<unsigned, unsigned> cell, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
   {
-    DeviceProblem<W> problem = {board.known_on, board.known_off, {}};
-    problem.known_on.set(cell);
-    problem.seed.set(cell);
-
-    stack_push(stack, problem);
+    ThreeBoard<N, W> sub_board = board;
+    sub_board.known_on.set(cell);
+    sub_board.eliminate_all_lines(cell);
+    sub_board.propagate();
+    if(sub_board.consistent()) {
+      DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+      stack_push(stack, problem);
+    }
   }
   {
-    DeviceProblem<W> problem = {board.known_on, board.known_off, {}};
-    problem.known_off.set(cell);
-
-    stack_push(stack, problem);
+    ThreeBoard<N, W> sub_board = board;
+    sub_board.known_off.set(cell);
+    sub_board.propagate();
+    if(sub_board.consistent()) {
+      DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off, {}};
+      stack_push(stack, problem);
+    }
   }
 }
 
