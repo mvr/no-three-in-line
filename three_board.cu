@@ -28,6 +28,7 @@ struct ThreeBoard {
 
   _DI_ BitBoard<W> vulnerable() const;
 
+  _DI_ BitBoard<W> eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q, cuda::std::pair<unsigned, unsigned> delta);
   _DI_ BitBoard<W> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<W> seed);
@@ -496,23 +497,13 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const{
 
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W>
-ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
-                              cuda::std::pair<unsigned, unsigned> q) {
-  if (p.second > q.second)
-    cuda::std::swap(p, q);
-
-  cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
-
-  // Recall div_gcd_table[x][y] = x / gcd(x, y)
-  const unsigned first_div = div_gcd_table[std::abs(delta.first)][delta.second];
-  const unsigned second_div = div_gcd_table[delta.second][std::abs(delta.first)];
-  delta.first = (delta.first < 0 ? -1 : 1) * first_div;
-  delta.second = second_div;
+ThreeBoard<N, W>::eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p,
+                                       cuda::std::pair<unsigned, unsigned> q,
+                                       cuda::std::pair<unsigned, unsigned> delta) {
+  BitBoard<W> result;
 
   unsigned p_quo = p.second / delta.second;
   unsigned p_rem = p.second % delta.second;
-
-  BitBoard<W> result;
 
   if constexpr (W == 32) {
     unsigned row = threadIdx.x & 31;
@@ -552,6 +543,29 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
   }
 
   return result;
+}
+
+template <unsigned N, unsigned W>
+_DI_ BitBoard<W>
+ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
+                                 cuda::std::pair<unsigned, unsigned> q) {
+  if (p.second > q.second)
+    cuda::std::swap(p, q);
+
+  cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
+
+  // Recall div_gcd_table[x][y] = x / gcd(x, y)
+  const unsigned first_div = div_gcd_table[std::abs(delta.first)][delta.second];
+  const unsigned second_div = div_gcd_table[delta.second][std::abs(delta.first)];
+  delta.first = (delta.first < 0 ? -1 : 1) * first_div;
+  delta.second = second_div;
+
+  switch(delta.second) {
+  case 1: return eliminate_line_inner(p, q, {delta.first, 1});
+  case 2: return eliminate_line_inner(p, q, {delta.first, 2});
+  case 4: return eliminate_line_inner(p, q, {delta.first, 4});
+  default: return eliminate_line_inner(p, q, delta);
+  }
 }
 
 template <unsigned N, unsigned W>
