@@ -136,8 +136,6 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   board.known_on = problem.known_on;
   board.known_off = problem.known_off;
 
-  board.soft_branch_cells(board.vulnerable());
-
   if (!board.consistent())
     return;
 
@@ -150,18 +148,14 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
     return;
   }
 
+  BitBoard<W> vulnerable = board.vulnerable();
+  if(!vulnerable.empty()) {
+    auto cell = vulnerable.template first_center_on<N>();
+    resolve_outcome_cell<N, W>(board, cell, stack, solution_buffer);
+    return;
+  }
 
   auto [row, row_unknown] = board.most_constrained_row();
-  if (row_unknown <= COL_BRANCH_THRESHOLD) {
-    resolve_outcome_row<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
-    return;
-  }
-  auto [col, col_unknown] = board.most_constrained_col();
-  if (col_unknown <= COL_BRANCH_THRESHOLD) {
-    resolve_outcome_row<N, W>(board, Axis::Vertical, col, stack, solution_buffer);
-    return;
-  }
-
   resolve_outcome_row<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
 }
 
