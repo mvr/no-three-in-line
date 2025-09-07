@@ -308,8 +308,9 @@ struct BinaryCount {
     const board_row_t<W> out0 = bit0 ^ other.bit0;
     const board_row_t<W> carry0 = bit0 & other.bit0;
 
-    const board_row_t<W> out1 = bit1 ^ other.bit1 ^ carry0;
-    const board_row_t<W> carry1 = (bit1 & other.bit1) | (carry0 & (bit1 | other.bit1));
+    const board_row_t<W> out1_temp = bit1 ^ other.bit1;
+    const board_row_t<W> out1 = out1_temp ^ carry0;
+    const board_row_t<W> carry1 = (bit1 & other.bit1) | (carry0 & out1_temp);
     const board_row_t<W> out_overflow = carry1 | overflow | other.overflow;
 
     return {out0, out1, out_overflow};
