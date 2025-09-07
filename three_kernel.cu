@@ -79,6 +79,7 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, uns
 
     ThreeBoard<N, W> sub_board = tried_board;
     sub_board.known_on.set(cell);
+    sub_board.eliminate_one_hop(cell);
     sub_board.eliminate_all_lines(cell);
     sub_board.propagate();
 
@@ -96,6 +97,7 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
   {
     ThreeBoard<N, W> sub_board = board;
     sub_board.known_on.set(cell);
+    sub_board.eliminate_one_hop(cell);
     sub_board.eliminate_all_lines(cell);
     sub_board.propagate();
     if(sub_board.consistent()) {
@@ -241,8 +243,8 @@ bool relevant_endpoint(std::pair<unsigned, unsigned> q) {
     // There is a point between that needs checking
     return true;
 
-  if(q.first * 2 >= N || q.second*2 >= N)
-    // There is no way a third point can fit in the square
+  if(q.first * 3 >= N || q.second * 3 >= N)
+    // There is no way a fourth point can fit in the square
     return false;
 
   return true;

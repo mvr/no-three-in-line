@@ -124,6 +124,8 @@ struct BitBoard {
   template<unsigned N>
   _DI_ bool is_canonical_subsquare() const;
 
+  _DI_ BitBoard<W> mirror_around(cuda::std::pair<int, int> cell) const;
+
   _DI_ void print() const;
 };
 
@@ -624,6 +626,39 @@ _DI_ bool BitBoard<W>::is_canonical_subsquare<N>() const {
   if (anti_diag < *this) return false;
   
   return true;
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::mirror_around(cuda::std::pair<int, int> cell) const {
+  auto [x, y] = cell;
+
+  __builtin_assume(x >= 0 && x < W);
+  __builtin_assume(y >= 0 && y < W);
+
+  if constexpr (W == 32) {
+    // After bit-reversing, x ends up at (31 - x), and we have to
+    // shift that back to x. It's fine that this truncates we don't
+    // want torus wrapping here.
+    uint32_t t;
+
+    if(31 - x > x)
+      t = __brev(state) >> ((31 - x) - x);
+    else
+      t = __brev(state) << (x - (31 - x));
+
+    // We also have to reflect the rows around y. A row k needs to
+    // read from 2*y - k
+    int k = threadIdx.x & 31;
+    int otherlane = 2*y - k;
+    t = __shfl_sync(0xffffffff, t, otherlane);
+
+    if(otherlane < 0 || otherlane > 32) // Value of t undefined
+      t = 0;
+
+    return BitBoard<W>(t);
+
+  } else {
+  }
 }
 
 template<unsigned W>

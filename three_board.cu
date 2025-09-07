@@ -33,6 +33,10 @@ struct ThreeBoard {
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<W> seed);
   _DI_ void eliminate_all_lines() { eliminate_all_lines(known_on); }
+
+  _DI_ void eliminate_one_hop(cuda::std::pair<unsigned, unsigned> p);
+  _DI_ void eliminate_one_hop(BitBoard<W> seed);
+
   _DI_ void propagate();
 
   _DI_ void soft_branch_cell(cuda::std::pair<unsigned, unsigned> cell);
@@ -602,10 +606,35 @@ ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
 }
 
 template <unsigned N, unsigned W>
+_DI_ void
+ThreeBoard<N, W>::eliminate_one_hop(cuda::std::pair<unsigned, unsigned> p) {
+  BitBoard<W> to_eliminate = known_on.mirror_around(p);
+  if((threadIdx.x & 31) == p.second)
+    to_eliminate.state = 0;
+  known_off |= to_eliminate;
+  known_off &= bounds();
+}
+
+template <unsigned N, unsigned W>
+_DI_ void
+ThreeBoard<N, W>::eliminate_one_hop(BitBoard<W> ps) {
+  for (auto p = ps.first_on(); !ps.empty();
+       ps.erase(p), p = ps.first_on()) {
+    BitBoard<W> to_eliminate = known_on.mirror_around(p);
+    if((threadIdx.x & 31) == p.second)
+      to_eliminate.state = 0;
+    known_off |= to_eliminate;
+  }
+
+  known_off &= bounds();
+}
+
+template <unsigned N, unsigned W>
 _DI_ void ThreeBoard<N, W>::propagate() {
   ThreeBoard<N, W> prev;
 
-  BitBoard<W> doneOns = known_on;
+  BitBoard<W> done_ons = known_on;
+  BitBoard<W> hop_ons = known_on;
 
   do {
     prev = *this;
@@ -614,12 +643,20 @@ _DI_ void ThreeBoard<N, W>::propagate() {
     do {
       prev2 = *this;
       *this = force_orthogonal();
+
       if(!consistent())
         return;
+
+      eliminate_one_hop(known_on & ~hop_ons);
+      hop_ons = known_on;
     } while(*this != prev2);
 
-    eliminate_all_lines(known_on & ~doneOns);
-    doneOns = known_on;
+    eliminate_all_lines(known_on & ~done_ons);
+
+    if(!consistent())
+        return;
+
+    done_ons = known_on;
   } while (*this != prev);
 }
 
