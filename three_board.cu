@@ -573,8 +573,8 @@ template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<W> qs = known_on & ThreeBoard<N, W>::relevant_endpoint(p);
-  for (auto q = qs.first_on(); !qs.empty();
-       qs.erase(q), q = qs.first_on()) {
+  for (auto q = qs.some_on(); !qs.empty();
+       qs.erase(q), q = qs.some_on()) {
     known_off |= eliminate_line(p, q);
     if (!consistent())
       break;
@@ -587,17 +587,15 @@ _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
   if (ps.empty())
     return;
-  for (auto p = ps.first_on(); !ps.empty();
-       ps.erase(p), p = ps.first_on()) {
+  for (auto p = ps.some_on(); !ps.empty();
+       ps.erase(p), p = ps.some_on()) {
     BitBoard<W> qs = known_on & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
-    for (auto q = qs.first_on(); !qs.empty();
-         qs.erase(q), q = qs.first_on()) {
+    for (auto q = qs.some_on(); !qs.empty();
+         qs.erase(q), q = qs.some_on()) {
       known_off |= eliminate_line(p, q);
       if (!consistent())
-        break;
+        return;
     }
-    if (!consistent())
-      break;
   }
   known_off &= bounds();
 }
@@ -615,8 +613,8 @@ ThreeBoard<N, W>::eliminate_one_hop(cuda::std::pair<unsigned, unsigned> p) {
 template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_one_hop(BitBoard<W> ps) {
-  for (auto p = ps.first_on(); !ps.empty();
-       ps.erase(p), p = ps.first_on()) {
+  for (auto p = ps.some_on(); !ps.empty();
+       ps.erase(p), p = ps.some_on()) {
     BitBoard<W> to_eliminate = known_on.mirror_around(p);
     if((threadIdx.x & 31) == p.second)
       to_eliminate.state = 0;

@@ -77,6 +77,23 @@ _HD_ int find_first_set(board_row_t<W> x) {
 }
 
 template<unsigned W>
+_HD_ int find_last_set(board_row_t<W> x) {
+  if constexpr (W == 32) {
+    #ifdef __CUDACC__
+    return 31 - __clz(x);
+    #else
+    return 31 - __builtin_clz(x);
+    #endif
+  } else {
+    #ifdef __CUDACC__
+    return 63 - __clzll(x);
+    #else
+    return 63 - __builtin_clzll(x);
+    #endif
+  }
+}
+
+template<unsigned W>
 _HD_ int count_trailing_zeros(board_row_t<W> x) {
   if constexpr (W == 32) {
     #ifdef __CUDACC__

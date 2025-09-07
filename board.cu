@@ -99,6 +99,7 @@ struct BitBoard {
   _DI_ void erase(cuda::std::pair<int, int> cell) { erase(cell.first, cell.second); }
 
   _DI_ cuda::std::pair<int, int> first_on() const;
+  _DI_ cuda::std::pair<int, int> some_on() const;
 
   _DI_ static BitBoard<W> positions_before(int x, int y);
   _DI_ static BitBoard<W> positions_before(cuda::std::pair<int, int> cell) { return positions_before(cell.first, cell.second); }
@@ -268,6 +269,22 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
     x = __shfl_sync(0xffffffff, x, first_lane);
 
     return {x, y};
+  }
+}
+
+template<unsigned W>
+_DI_ cuda::std::pair<int, int> BitBoard<W>::some_on() const {
+  if constexpr (W == 32) {
+    unsigned x = find_last_set<32>(state);
+
+    uint32_t mask = __ballot_sync(0xffffffff, state);
+    unsigned first_lane = find_last_set<32>(mask);
+
+    x = __shfl_sync(0xffffffff, x, first_lane);
+
+    return {x, first_lane};
+  } else {
+
   }
 }
 
