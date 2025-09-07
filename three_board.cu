@@ -325,16 +325,12 @@ _DI_ BinaryCount<W> count_vertically(const board_row_t<W> value) {
   #pragma unroll
   for (int offset = 16; offset > 0; offset /= 2) {
     BinaryCount<W> other;
-    other.bit0 = __shfl_down_sync(0xffffffff, result.bit0, offset);
-    other.bit1 = __shfl_down_sync(0xffffffff, result.bit1, offset);
-    other.overflow = __shfl_down_sync(0xffffffff, result.overflow, offset);
+    other.bit0 = __shfl_xor_sync(0xffffffff, result.bit0, offset);
+    other.bit1 = __shfl_xor_sync(0xffffffff, result.bit1, offset);
+    other.overflow = __shfl_xor_sync(0xffffffff, result.overflow, offset);
 
     result += other;
   }
-
-  result.bit0 = __shfl_sync(0xffffffff, result.bit0, 0);
-  result.bit1 = __shfl_sync(0xffffffff, result.bit1, 0);
-  result.overflow = __shfl_sync(0xffffffff, result.overflow, 0);
 
   return result;
 }
