@@ -110,6 +110,29 @@ _HD_ int count_trailing_zeros(board_row_t<W> x) {
   }
 }
 
+// Also stolen from cpads
+template<uint8_t Op>
+_HD_ uint32_t lop3(uint32_t x, uint32_t y, uint32_t z) {
+    uint32_t w;
+    #ifdef __CUDA_ARCH__
+    asm("lop3.b32 %0,%1,%2,%3,%4;\n" : "=r"(w) : "r"(x), "r"(y), "r"(z), "n"(Op));
+    #else
+    uint32_t normals[8] = {0, z &~ y, y &~ z, y ^ z, y & z, z, y, y | z};
+    constexpr bool op0 = (Op & 1);
+    constexpr bool op4 = (Op & 16);
+    constexpr uint8_t Lo = op0 ? (7 &~ (Op >> 1)) : (7 & (Op >> 1));
+    constexpr uint8_t Hi = op4 ? (7 &~ (Op >> 5)) : (7 & (Op >> 5));
+    uint32_t wlo = op0 ? (~normals[Lo]) : normals[Lo];
+    uint32_t whi = op4 ? (~normals[Hi]) : normals[Hi];
+    w = (whi & x) | (wlo &~ x);
+    #endif
+    return w;
+}
+
+_HD_ uint32_t maj3(uint32_t x, uint32_t y, uint32_t z) { return lop3<0xE8>(x, y, z); }
+_HD_ uint32_t xor3(uint32_t x, uint32_t y, uint32_t z) { return lop3<0x96>(x, y, z); }
+_HD_ uint32_t mux3(uint32_t x, uint32_t y, uint32_t z) { return lop3<0xCA>(x, y, z); }
+
 #ifdef __CUDACC__
 
 __constant__ unsigned char div_gcd_table[64][64];
