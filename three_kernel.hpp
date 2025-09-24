@@ -9,14 +9,12 @@ template<unsigned W>
 struct Problem {
   board_array_t<W> known_on;
   board_array_t<W> known_off;
-  board_array_t<W> seed; // The newly placed, unpropagated ONs
 };
 
 template <unsigned W>
 struct DeviceStack {
   Problem<W> problems[STACK_CAPACITY];
   unsigned size;
-  unsigned lock;
 };
 
 template <unsigned W>
