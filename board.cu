@@ -97,6 +97,7 @@ struct BitBoard {
   _DI_ void set(cuda::std::pair<int, int> cell) { set(cell.first, cell.second); }
   _DI_ void erase(int x, int y);
   _DI_ void erase(cuda::std::pair<int, int> cell) { erase(cell.first, cell.second); }
+  _DI_ void erase_row(int y);
 
   _DI_ cuda::std::pair<int, int> first_on() const;
   _DI_ cuda::std::pair<int, int> some_on() const;
@@ -241,6 +242,25 @@ _DI_ void BitBoard<W>::erase(int x, int y) {
     state.y &= ~(bit & (should_act && !(y & 1) &&  (x & 32) ? 0xffffffff : 0));
     state.z &= ~(bit & (should_act &&  (y & 1) && !(x & 32) ? 0xffffffff : 0));
     state.w &= ~(bit & (should_act &&  (y & 1) &&  (x & 32) ? 0xffffffff : 0));
+  }
+}
+
+template<unsigned W>
+_DI_ void BitBoard<W>::erase_row(int y) {
+  if constexpr (W == 32) {
+    bool should_act = (threadIdx.x & 31) == y;
+    if (should_act)
+      state = 0;
+  } else {
+    bool should_act = (threadIdx.x & 31) == (y >> 1);
+    if (should_act && !(y & 1)) {
+      state.x = 0;
+      state.y = 0;
+    }
+    if (should_act && (y & 1)) {
+      state.z = 0;
+      state.w = 0;
+    }
   }
 }
 

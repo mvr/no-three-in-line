@@ -389,40 +389,40 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     result.known_off.state |= not_off_count_lt_2;
   } else {
     const BinaryCountSaturating on_count_xz = count_vertically_saturating<32>(known_on.state.x) + count_vertically_saturating<32>(known_on.state.z);
-    const uint32_t on_count_xz_eq_2 = ~on_count_xz.overflow & on_count_xz.bit1 & ~on_count_xz.bit0;
+    const uint32_t on_count_xz_eq_2 = on_count_xz.bit1 & ~on_count_xz.bit0;
     result.known_off.state.x |= ~known_on.state.x & on_count_xz_eq_2;
     result.known_off.state.z |= ~known_on.state.z & on_count_xz_eq_2;
 
-    const uint32_t on_count_xz_gt_2 = on_count_xz.overflow | (on_count_xz.bit1 & on_count_xz.bit0);
+    const uint32_t on_count_xz_gt_2 = on_count_xz.bit1 & on_count_xz.bit0;
     result.known_on.state.x |= on_count_xz_gt_2;
     result.known_off.state.x |= on_count_xz_gt_2;
 
     const BinaryCountSaturating on_count_yw = count_vertically_saturating<32>(known_on.state.y) + count_vertically_saturating<32>(known_on.state.w);
-    const uint32_t on_count_yw_eq_2 = ~on_count_yw.overflow & on_count_yw.bit1 & ~on_count_yw.bit0;
+    const uint32_t on_count_yw_eq_2 = on_count_yw.bit1 & ~on_count_yw.bit0;
     result.known_off.state.y |= ~known_on.state.y & on_count_yw_eq_2;
     result.known_off.state.w |= ~known_on.state.w & on_count_yw_eq_2;
 
-    const uint32_t on_count_yw_gt_2 = on_count_yw.overflow | (on_count_yw.bit1 & on_count_yw.bit0);
+    const uint32_t on_count_yw_gt_2 = on_count_yw.bit1 & on_count_yw.bit0;
     result.known_on.state.y |= on_count_yw_gt_2;
     result.known_off.state.y |= on_count_yw_gt_2;
 
     BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
 
     const BinaryCountSaturating not_off_count_xz = count_vertically_saturating<32>(notKnownOff.state.x) + count_vertically_saturating<32>(notKnownOff.state.z);
-    const uint32_t not_off_count_xz_eq_2 = ~not_off_count_xz.overflow & not_off_count_xz.bit1 & ~not_off_count_xz.bit0;
+    const uint32_t not_off_count_xz_eq_2 = not_off_count_xz.bit1 & ~not_off_count_xz.bit0;
     result.known_on.state.x |= ~known_off.state.x & not_off_count_xz_eq_2;
     result.known_on.state.z |= ~known_off.state.z & not_off_count_xz_eq_2;
 
-    const uint32_t not_off_count_xz_lt_2 = ~not_off_count_xz.overflow & ~not_off_count_xz.bit1;
+    const uint32_t not_off_count_xz_lt_2 = ~not_off_count_xz.bit1;
     result.known_on.state.x |= not_off_count_xz_lt_2;
     result.known_off.state.x |= not_off_count_xz_lt_2;
 
     const BinaryCountSaturating not_off_count_yw = count_vertically_saturating<32>(notKnownOff.state.y) + count_vertically_saturating<32>(notKnownOff.state.w);
-    const uint32_t not_off_count_yw_eq_2 = ~not_off_count_yw.overflow & not_off_count_yw.bit1 & ~not_off_count_yw.bit0;
+    const uint32_t not_off_count_yw_eq_2 = not_off_count_yw.bit1 & ~not_off_count_yw.bit0;
     result.known_on.state.y |= ~known_off.state.y & not_off_count_yw_eq_2;
     result.known_on.state.w |= ~known_off.state.w & not_off_count_yw_eq_2;
 
-    const uint32_t not_off_count_yw_lt_2 = ~not_off_count_yw.overflow & ~not_off_count_yw.bit1;
+    const uint32_t not_off_count_yw_lt_2 = ~not_off_count_yw.bit1;
     result.known_on.state.y |= not_off_count_yw_lt_2;
     result.known_off.state.y |= not_off_count_yw_lt_2;
   }
@@ -634,8 +634,7 @@ template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_one_hop(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<W> to_eliminate = known_on.mirror_around(p);
-  if((threadIdx.x & 31) == p.second)
-    to_eliminate.state = 0;
+  to_eliminate.erase_row(p.second);
   known_off |= to_eliminate;
   known_off &= bounds();
 }
@@ -646,8 +645,7 @@ ThreeBoard<N, W>::eliminate_one_hop(BitBoard<W> ps) {
   for (auto p = ps.some_on(); !ps.empty();
        ps.erase(p), p = ps.some_on()) {
     BitBoard<W> to_eliminate = known_on.mirror_around(p);
-    if((threadIdx.x & 31) == p.second)
-      to_eliminate.state = 0;
+    to_eliminate.erase_row(p.second);
     known_off |= to_eliminate;
   }
 
