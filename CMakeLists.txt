@@ -13,7 +13,7 @@ include(CheckLanguage)
 check_language(CUDA)
 enable_language(CUDA)
 
-set(CMAKE_CUDA_ARCHITECTURES "86")
+set(CMAKE_CUDA_ARCHITECTURES "87-real")
 # set(CMAKE_CUDA_ARCHITECTURES "native")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --ptxas-options=-v --generate-line-info --expt-relaxed-constexpr")
 
