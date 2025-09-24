@@ -127,6 +127,9 @@ struct BitBoard {
 
   _DI_ BitBoard<W> mirror_around(cuda::std::pair<int, int> cell) const;
 
+  template<unsigned N>
+  _DI_ cuda::std::pair<int, int> first_center_on() const;
+
   _DI_ void print() const;
 };
 
@@ -285,6 +288,64 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::some_on() const {
     return {x, first_lane};
   } else {
 
+  }
+}
+
+template <unsigned W>
+template <unsigned N>
+_DI_ cuda::std::pair<int, int> BitBoard<W>::first_center_on<N>() const {
+  if constexpr (W == 32) {
+    // Put the center at 0, 0, then shift at the end
+
+    uint32_t right_shifted = state >> (N/2);
+    int right_closest = find_first_set<32>(right_shifted);
+
+    uint32_t left_shifted = __brev(state) >> (32 - (N/2));
+    int left_closest = -(int)find_first_set<32>(left_shifted) - 1;
+
+    int row = (int)(threadIdx.x & 31) - (int)(N/2);
+
+    int col = N;
+    if (right_shifted != 0 && std::abs(right_closest) < std::abs(col))
+      col = right_closest;
+    if (left_shifted != 0 && std::abs(left_closest) < std::abs(col))
+      col = left_closest;
+
+    unsigned dist2 = row * row + col * col;
+
+    for (int offset = 16; offset > 0; offset /= 2) {
+      int other_row = __shfl_down_sync(0xffffffff, row, offset);
+      int other_col = __shfl_down_sync(0xffffffff, col, offset);
+      unsigned other_dist2 = __shfl_down_sync(0xffffffff, dist2, offset);
+
+      if (other_dist2 < dist2) {
+        row = other_row;
+        col = other_col;
+        dist2 = other_dist2;
+      }
+    }
+
+    row = __shfl_sync(0xffffffff, row, 0);
+    col = __shfl_sync(0xffffffff, col, 0);
+
+    return {col + (N/2), row + (N/2)};
+  } else {
+    // unsigned x_low = find_first_set<64>((uint64_t) state.y << 32 | state.x);
+    // unsigned x_high = find_first_set<64>((uint64_t) state.w << 32 | state.z);
+
+    // bool use_high = ((state.x | state.y) == 0);
+    // unsigned x = use_high ? x_high : x_low;
+
+    // unsigned y_base = (threadIdx.x & 31) << 1;
+    // unsigned y = y_base + (use_high ? 1 : 0);
+
+    // uint32_t mask = __ballot_sync(0xffffffff, state.x | state.y | state.z | state.w);
+    // unsigned first_lane = find_first_set<32>(mask);
+
+    // y = __shfl_sync(0xffffffff, y, first_lane);
+    // x = __shfl_sync(0xffffffff, x, first_lane);
+
+    return {0, 0};
   }
 }
 
