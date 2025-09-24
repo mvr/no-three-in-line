@@ -307,7 +307,31 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::some_on() const {
 
     return {x, first_lane};
   } else {
+    uint32_t lane_mask = state.x | state.y | state.z | state.w;
+    uint32_t active_lanes = __ballot_sync(0xffffffff, lane_mask != 0);
+    unsigned lane = find_first_set<32>(active_lanes);
 
+    unsigned x = 0;
+    unsigned y = 0;
+
+    if ((threadIdx.x & 31) == lane) {
+      unsigned y_base = lane << 1;
+      uint64_t even = ((uint64_t)state.y << 32) | state.x;
+      uint64_t odd = ((uint64_t)state.w << 32) | state.z;
+
+      if (odd) {
+        x = find_first_set<64>(odd);
+        y = y_base + 1;
+      } else {
+        x = find_first_set<64>(even);
+        y = y_base;
+      }
+    }
+
+    x = __shfl_sync(0xffffffff, x, lane);
+    y = __shfl_sync(0xffffffff, y, lane);
+
+    return {x, y};
   }
 }
 
@@ -350,22 +374,84 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_center_on<N>() const {
 
     return {col + (N/2), row + (N/2)};
   } else {
-    // unsigned x_low = find_first_set<64>((uint64_t) state.y << 32 | state.x);
-    // unsigned x_high = find_first_set<64>((uint64_t) state.w << 32 | state.z);
+    constexpr unsigned center = N / 2;
 
-    // bool use_high = ((state.x | state.y) == 0);
-    // unsigned x = use_high ? x_high : x_low;
+    auto abs_int = [](int v) { return v < 0 ? -v : v; };
 
-    // unsigned y_base = (threadIdx.x & 31) << 1;
-    // unsigned y = y_base + (use_high ? 1 : 0);
+    struct Candidate {
+      int row;
+      int col;
+      unsigned dist2;
+    };
 
-    // uint32_t mask = __ballot_sync(0xffffffff, state.x | state.y | state.z | state.w);
-    // unsigned first_lane = find_first_set<32>(mask);
+    auto make_candidate = [&](uint64_t bits, int row_index) {
+      Candidate cand;
+      cand.row = row_index - static_cast<int>(center);
+      cand.col = static_cast<int>(N);
 
-    // y = __shfl_sync(0xffffffff, y, first_lane);
-    // x = __shfl_sync(0xffffffff, x, first_lane);
+      if (bits) {
+        if constexpr (center < 64) {
+          uint64_t right_shifted = bits >> center;
+          if (right_shifted) {
+            int right = find_first_set<64>(right_shifted);
+            if (abs_int(right) < abs_int(cand.col)) {
+              cand.col = right;
+            }
+          }
+        }
 
-    return {0, 0};
+        if constexpr (center > 0) {
+          uint64_t left_mask;
+          if constexpr (center >= 64) {
+            left_mask = bits;
+          } else {
+            left_mask = bits & ((1ULL << center) - 1ULL);
+          }
+
+          if (left_mask) {
+            int left_index = 63 - __clzll(left_mask);
+            int left_offset = left_index - static_cast<int>(center);
+            if (abs_int(left_offset) < abs_int(cand.col)) {
+              cand.col = left_offset;
+            }
+          }
+        }
+      }
+
+      cand.dist2 = static_cast<unsigned>(cand.row * cand.row + cand.col * cand.col);
+      return cand;
+    };
+
+    int lane = threadIdx.x & 31;
+    unsigned y_base = lane << 1;
+
+    uint64_t even_row_bits = (static_cast<uint64_t>(state.y) << 32) | state.x;
+    uint64_t odd_row_bits = (static_cast<uint64_t>(state.w) << 32) | state.z;
+
+    Candidate even = make_candidate(even_row_bits, y_base);
+    Candidate odd = make_candidate(odd_row_bits, y_base + 1);
+    Candidate best = (odd.dist2 < even.dist2) ? odd : even;
+
+    int row = best.row;
+    int col = best.col;
+    unsigned dist2 = best.dist2;
+
+    for (int offset = 16; offset > 0; offset /= 2) {
+      int other_row = __shfl_down_sync(0xffffffff, row, offset);
+      int other_col = __shfl_down_sync(0xffffffff, col, offset);
+      unsigned other_dist2 = __shfl_down_sync(0xffffffff, dist2, offset);
+
+      if (other_dist2 < dist2) {
+        row = other_row;
+        col = other_col;
+        dist2 = other_dist2;
+      }
+    }
+
+    row = __shfl_sync(0xffffffff, row, 0);
+    col = __shfl_sync(0xffffffff, col, 0);
+
+    return {col + static_cast<int>(center), row + static_cast<int>(center)};
   }
 }
 
@@ -389,7 +475,7 @@ _DI_ BitBoard<W> BitBoard<W>::positions_before(int x, int y) {
     uint32_t row_mask_high = (x < 32) ? 0 : ((1u << (x - 32)) - 1);
 
     int my_row = threadIdx.x & 31;
-    bool before_row = (my_row * 2 < y);
+    bool before_row = (my_row * 2 + 1 < y);
     bool at_row_even = (my_row * 2 == y);
     bool at_row_odd = (my_row * 2 + 1 == y);
 
@@ -756,6 +842,60 @@ _DI_ BitBoard<W> BitBoard<W>::mirror_around(cuda::std::pair<int, int> cell) cons
     return BitBoard<W>(t);
 
   } else {
+    int lane = threadIdx.x & 31;
+    int shift = 63 - 2 * x;
+
+    uint64_t even_row = (static_cast<uint64_t>(state.y) << 32) | state.x;
+    uint64_t odd_row = (static_cast<uint64_t>(state.w) << 32) | state.z;
+
+    auto mirror_row = [&](uint64_t row) -> uint64_t {
+      uint64_t reversed = __brevll(row);
+      if (shift >= 0) {
+        return reversed >> shift;
+      } else {
+        return reversed << (-shift);
+      }
+    };
+
+    uint64_t mirrored_even = mirror_row(even_row);
+    uint64_t mirrored_odd = mirror_row(odd_row);
+
+    uint32_t even_low = static_cast<uint32_t>(mirrored_even);
+    uint32_t even_high = static_cast<uint32_t>(mirrored_even >> 32);
+    uint32_t odd_low = static_cast<uint32_t>(mirrored_odd);
+    uint32_t odd_high = static_cast<uint32_t>(mirrored_odd >> 32);
+
+    int y_even_out = lane << 1;
+    int y_odd_out = y_even_out + 1;
+
+    auto fetch_row = [&](int src_row) -> uint64_t {
+      if (src_row < 0 || src_row >= 64) {
+        return 0ULL;
+      }
+
+      int src_lane = src_row >> 1;
+      uint32_t fetched_even_low = __shfl_sync(0xffffffff, even_low, src_lane);
+      uint32_t fetched_even_high = __shfl_sync(0xffffffff, even_high, src_lane);
+      uint32_t fetched_odd_low = __shfl_sync(0xffffffff, odd_low, src_lane);
+      uint32_t fetched_odd_high = __shfl_sync(0xffffffff, odd_high, src_lane);
+
+      if (src_row & 1) {
+        return (static_cast<uint64_t>(fetched_odd_high) << 32) | fetched_odd_low;
+      } else {
+        return (static_cast<uint64_t>(fetched_even_high) << 32) | fetched_even_low;
+      }
+    };
+
+    uint64_t even_out = fetch_row(2 * y - y_even_out);
+    uint64_t odd_out = fetch_row(2 * y - y_odd_out);
+
+    uint4 result_state;
+    result_state.x = static_cast<uint32_t>(even_out);
+    result_state.y = static_cast<uint32_t>(even_out >> 32);
+    result_state.z = static_cast<uint32_t>(odd_out);
+    result_state.w = static_cast<uint32_t>(odd_out >> 32);
+
+    return BitBoard<W>(result_state);
   }
 }
 

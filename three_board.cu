@@ -53,14 +53,21 @@ struct ThreeBoard {
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoard<N, W>::bounds() {
   if constexpr (W == 32) {
-    uint32_t row_bound = N >= 32 ? (~0) : (1 << N) - 1;
+    uint32_t row_bound = N >= 32 ? (~0u) : (1u << N) - 1;
     bool has_row = (threadIdx.x & 31) < N;
     BitBoard<W> result;
     result.state = has_row ? row_bound : 0;
     return result;
   } else {
-    uint32_t row_bound_x = N >= 32 ? (~0) : (1 << N) - 1;
-    uint32_t row_bound_y = N >= 32 ? (1 << (N - 32)) - 1 : 0;
+    uint32_t row_bound_x = N >= 32 ? (~0u) : (1u << N) - 1;
+    uint32_t row_bound_y;
+    if constexpr (N <= 32) {
+      row_bound_y = 0;
+    } else if constexpr (N >= 64) {
+      row_bound_y = 0xffffffff;
+    } else {
+      row_bound_y = (1u << (N - 32)) - 1;
+    }
     bool has_half = (threadIdx.x & 31) < ((N + 1) >> 1);
     bool has_full = (threadIdx.x & 31) < (N >> 1);
     BitBoard<W> result;
