@@ -53,11 +53,10 @@ __device__ bool solution_buffer_push(SolutionBuffer<W> *buffer, BitBoard<W> &sol
   return true;
 }
 
-template <unsigned N, unsigned W>
-__device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, unsigned ix, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
-
+template <unsigned N, unsigned W, Axis Dir>
+__device__ void resolve_outcome_row(const ThreeBoard<N, W> board, unsigned ix, DeviceStack<W> *stack) {
   board_row_t<W> line_known_on, line_known_off;
-  if (axis == Axis::Horizontal) {
+  if constexpr (Dir == Axis::Horizontal) {
     line_known_on = board.known_on.row(ix);
     line_known_off = board.known_off.row(ix);
   } else { // Axis::Vertical
@@ -66,15 +65,22 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, uns
   }
 
   board_row_t<W> remaining = ~line_known_on & ~line_known_off & (((board_row_t<W>)1 << N) - 1);
-  unsigned on_count = popcount<W>(line_known_on);
 
   auto make_cell = [&](unsigned c) {
-    return (axis == Axis::Horizontal) ? cuda::std::pair<unsigned, unsigned>{c, ix} : cuda::std::pair<unsigned, unsigned>{ix, c};
+    if constexpr (Dir == Axis::Horizontal) {
+      return cuda::std::pair<unsigned, unsigned>{c, ix};
+    } else {
+      return cuda::std::pair<unsigned, unsigned>{ix, c};
+    }
   };
 
   ThreeBoard<N, W> tried_board = board;
-  unsigned remaining_count = popcount<W>(remaining) - (on_count == 0 ? 1 : 0);
-  for (; remaining_count > 0; remaining_count--, remaining &= remaining - 1) {
+  if (line_known_on == 0) {
+    unsigned keep = find_last_set<W>(remaining);
+    remaining &= ~(board_row_t<W>(1) << keep);
+  }
+
+  while(remaining != 0) {
     auto cell = make_cell(find_first_set<W>(remaining));
 
     ThreeBoard<N, W> sub_board = tried_board;
@@ -83,12 +89,13 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, Axis axis, uns
     sub_board.eliminate_all_lines(cell);
     sub_board.propagate();
 
-    if(sub_board.consistent()) {
+    if (sub_board.consistent()) {
       DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
     }
 
     tried_board.known_off.set(cell);
+    remaining &= (remaining - 1);
   }
 }
 
@@ -119,7 +126,7 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
 template <unsigned N, unsigned W>
 __global__ void initialize_stack_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
   ThreeBoard<N, W> board;
-  resolve_outcome_row<N, W>(board, Axis::Horizontal, N/2, stack, solution_buffer);
+  resolve_outcome_row<N, W, Axis::Horizontal>(board, N/2, stack);
 }
 
 template <unsigned N, unsigned W>
@@ -159,7 +166,7 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   }
 
   auto [row, row_unknown] = board.most_constrained_row();
-  resolve_outcome_row<N, W>(board, Axis::Horizontal, row, stack, solution_buffer);
+  resolve_outcome_row<N, W, Axis::Horizontal>(board, row, stack);
 }
 
 template <unsigned N, unsigned W>
