@@ -140,4 +140,72 @@ __constant__ unsigned char div_gcd_table[64][64];
 __constant__ uint64_t relevant_endpoint_table[64];
 __constant__ uint64_t relevant_endpoint_table_64[256];
 
+template <unsigned W>
+struct BinaryCountSaturating {
+  board_row_t<W> bit0;
+  board_row_t<W> bit1;
+
+  _DI_ BinaryCountSaturating operator+(const BinaryCountSaturating other) const {
+    const board_row_t<W> new0 = maj3(bit1, other.bit1, other.bit0) | (bit0 ^ other.bit0);
+    const board_row_t<W> new1 = bit1 | other.bit1 | (bit0 & other.bit0);
+    return {new0, new1};
+  }
+
+  _DI_ void operator+=(const BinaryCountSaturating other) { *this = *this + other; }
+};
+
+template <unsigned W>
+struct BinaryCount {
+  board_row_t<W> bit0;
+  board_row_t<W> bit1;
+  board_row_t<W> overflow;
+
+  _DI_ BinaryCount operator+(const BinaryCount other) const {
+    const board_row_t<W> out0 = bit0 ^ other.bit0;
+    const board_row_t<W> carry0 = bit0 & other.bit0;
+
+    const board_row_t<W> out1_temp = bit1 ^ other.bit1;
+    const board_row_t<W> out1 = out1_temp ^ carry0;
+    const board_row_t<W> carry1 = (bit1 & other.bit1) | (carry0 & out1_temp);
+    const board_row_t<W> out_overflow = carry1 | overflow | other.overflow;
+
+    return {out0, out1, out_overflow};
+  }
+
+  _DI_ void operator+=(const BinaryCount other) { *this = *this + other; }
+};
+
+template <unsigned W>
+_DI_ BinaryCountSaturating<W> count_vertically_saturating(const board_row_t<W> value) {
+  BinaryCountSaturating<W> result = {value, 0};
+
+  #pragma unroll
+  for (int offset = 16; offset > 0; offset /= 2) {
+    BinaryCountSaturating<W> other;
+    other.bit0 = __shfl_xor_sync(0xffffffff, result.bit0, offset);
+    other.bit1 = __shfl_xor_sync(0xffffffff, result.bit1, offset);
+
+    result += other;
+  }
+
+  return result;
+}
+
+template <unsigned W>
+_DI_ BinaryCount<W> count_vertically(const board_row_t<W> value) {
+  BinaryCount<W> result = {value, 0, 0};
+
+  #pragma unroll
+  for (int offset = 16; offset > 0; offset /= 2) {
+    BinaryCount<W> other;
+    other.bit0 = __shfl_xor_sync(0xffffffff, result.bit0, offset);
+    other.bit1 = __shfl_xor_sync(0xffffffff, result.bit1, offset);
+    other.overflow = __shfl_xor_sync(0xffffffff, result.overflow, offset);
+
+    result += other;
+  }
+
+  return result;
+}
+
 #endif
