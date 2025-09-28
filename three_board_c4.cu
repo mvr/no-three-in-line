@@ -24,12 +24,11 @@ _DI_ int mod_floor_int(int a, int b) {
   return r;
 }
 
-// C4-symmetric board specialised for even N up to 32. Stores only the
+// C4-symmetric board 2N × 2N for N up to 32. Stores only the
 // fundamental domain [0, N) × [0, N); the remaining three quadrants are
 // implied by fourfold rotational symmetry around (-0.5, -0.5).
 template <unsigned N>
 struct ThreeBoardC4 {
-  static_assert(N % 2 == 0, "C4 board requires even side length");
   static_assert(N <= 32, "Initial C4 implementation limited to N <= 32");
 
   BitBoard<32> known_on;
@@ -42,6 +41,7 @@ struct ThreeBoardC4 {
 
   _DI_ bool consistent() const;
   _DI_ unsigned unknown_pop() const;
+  _DI_ bool operator==(const ThreeBoardC4<N> &other) const;
 
   _DI_ ThreeBoardC4<N> force_orthogonal() const;
   _DI_ void apply_bounds();
@@ -66,6 +66,8 @@ struct ThreeBoardC4 {
   _DI_ BitBoard<32> eliminate_pair(cuda::std::pair<int, int> pi, cuda::std::pair<int, int> qj) const;
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<32> seed);
+
+  _DI_ void propagate();
 };
 
 // --- Inline implementation -------------------------------------------------
@@ -98,6 +100,11 @@ _DI_ bool ThreeBoardC4<N>::consistent() const {
 template <unsigned N>
 _DI_ unsigned ThreeBoardC4<N>::unknown_pop() const {
   return N * N - (known_on | known_off).pop();
+}
+
+template <unsigned N>
+_DI_ bool ThreeBoardC4<N>::operator==(const ThreeBoardC4<N> &other) const {
+  return known_on == other.known_on && known_off == other.known_off;
 }
 
 template <unsigned N>
@@ -280,7 +287,7 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_pair(cuda::std::pair<int, int> pi,
 
   int dx = qj.first - pi.first;
   int dy = qj.second - pi.second;
-  if (dy == 0)
+  if (dx == 0 || dy == 0)
     return result;
 
   int abs_dx = dx < 0 ? -dx : dx;
@@ -367,4 +374,33 @@ _DI_ void ThreeBoardC4<N>::eliminate_all_lines(BitBoard<32> ps) {
     }
   }
   apply_bounds();
+}
+
+template <unsigned N>
+_DI_ void ThreeBoardC4<N>::propagate() {
+  ThreeBoardC4<N> prev_state;
+  BitBoard<32> processed = known_on;
+
+  do {
+    prev_state = *this;
+
+    ThreeBoardC4<N> prev_force;
+    do {
+      prev_force = *this;
+      ThreeBoardC4<N> forced = force_orthogonal();
+      known_on = forced.known_on;
+      known_off = forced.known_off;
+      apply_bounds();
+      if (!consistent())
+        return;
+    } while (!(*this == prev_force));
+
+    BitBoard<32> newly_on = known_on & ~processed;
+    if (!newly_on.empty()) {
+      eliminate_all_lines(newly_on);
+      if (!consistent())
+        return;
+      processed = known_on;
+    }
+  } while (!(*this == prev_state));
 }

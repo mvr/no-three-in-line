@@ -245,6 +245,9 @@ template <unsigned N>
 void expect_eliminate_matches(const std::string &known_on_rle,
                               const std::string &known_off_rle,
                               const std::string &seed_rle) {
+  init_lookup_tables_host();
+  init_relevant_endpoint_host();
+
   const auto host_known_on = parse_rle<32>(known_on_rle);
   const auto host_known_off = parse_rle<32>(known_off_rle);
   const auto host_seed = parse_rle<32>(seed_rle);

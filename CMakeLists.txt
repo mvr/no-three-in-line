@@ -22,3 +22,4 @@ enable_testing()
 add_subdirectory(test)
 
 add_executable(three main.cpp three_kernel.cu)
+add_executable(three_c4 main_c4.cpp three_kernel_c4.cu three_kernel.cu)
