@@ -155,6 +155,33 @@ struct BinaryCountSaturating {
 };
 
 template <unsigned W>
+_DI_ BinaryCountSaturating<W> count_vertically_saturating(const board_row_t<W> value) {
+  BinaryCountSaturating<W> result = {value, 0};
+
+  #pragma unroll
+  for (int offset = 16; offset > 0; offset /= 2) {
+    BinaryCountSaturating<W> other;
+    other.bit0 = __shfl_xor_sync(0xffffffff, result.bit0, offset);
+    other.bit1 = __shfl_xor_sync(0xffffffff, result.bit1, offset);
+
+    result += other;
+  }
+
+  return result;
+}
+
+// TODO: only works for W=32
+template <unsigned W>
+_DI_ BinaryCountSaturating<W> count_horizontally_saturating(unsigned value) {
+  BinaryCountSaturating<W> result{};
+  unsigned pop = popcount<W>(value);
+  result.bit0 = __ballot_sync(0xffffffff, pop == 1 || pop > 2);
+  result.bit1 = __ballot_sync(0xffffffff, pop >= 2);
+  return result;
+}
+
+
+template <unsigned W>
 struct BinaryCount {
   board_row_t<W> bit0;
   board_row_t<W> bit1;
@@ -174,22 +201,6 @@ struct BinaryCount {
 
   _DI_ void operator+=(const BinaryCount other) { *this = *this + other; }
 };
-
-template <unsigned W>
-_DI_ BinaryCountSaturating<W> count_vertically_saturating(const board_row_t<W> value) {
-  BinaryCountSaturating<W> result = {value, 0};
-
-  #pragma unroll
-  for (int offset = 16; offset > 0; offset /= 2) {
-    BinaryCountSaturating<W> other;
-    other.bit0 = __shfl_xor_sync(0xffffffff, result.bit0, offset);
-    other.bit1 = __shfl_xor_sync(0xffffffff, result.bit1, offset);
-
-    result += other;
-  }
-
-  return result;
-}
 
 template <unsigned W>
 _DI_ BinaryCount<W> count_vertically(const board_row_t<W> value) {
