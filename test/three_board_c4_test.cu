@@ -25,19 +25,12 @@ std::string empty_rle() {
   return to_rle<N, 32>(arr);
 }
 
-template <unsigned N>
-struct FullBoardTraits {
-  static constexpr unsigned kFullN = 2 * N;
-  static constexpr unsigned kWordWidth = (kFullN <= 32) ? 32 : 64;
-};
 
 template <unsigned N>
 __device__ void expand_to_full(const ThreeBoardC4<N> &source,
-                               ThreeBoard<FullBoardTraits<N>::kFullN, FullBoardTraits<N>::kWordWidth> &destination) {
-  constexpr unsigned kFullN = FullBoardTraits<N>::kFullN;
-  constexpr unsigned kWordWidth = FullBoardTraits<N>::kWordWidth;
-  destination.known_on = BitBoard<kWordWidth>();
-  destination.known_off = BitBoard<kWordWidth>();
+                               typename ThreeBoardC4<N>::FullBoard &destination) {
+  destination.known_on = typename ThreeBoardC4<N>::FullBitBoard();
+  destination.known_off = typename ThreeBoardC4<N>::FullBitBoard();
 
   for (int y = 0; y < static_cast<int>(N); ++y) {
     const board_row_t<32> row_on = source.known_on.row(y);
@@ -72,7 +65,7 @@ __device__ void expand_to_full(const ThreeBoardC4<N> &source,
 }
 
 template <unsigned N>
-__device__ void project_to_fundamental(const ThreeBoard<FullBoardTraits<N>::kFullN, FullBoardTraits<N>::kWordWidth> &full_board,
+__device__ void project_to_fundamental(const typename ThreeBoardC4<N>::FullBoard &full_board,
                                        BitBoard<32> &proj_on,
                                        BitBoard<32> &proj_off) {
   proj_on = BitBoard<32>();
@@ -118,10 +111,10 @@ __global__ void force_compare_kernel(board_row_t<32> *known_on,
     *c4_consistency = c4_ok;
   }
 
-  ThreeBoard<FullBoardTraits<N>::kFullN, FullBoardTraits<N>::kWordWidth> full_board;
+  typename ThreeBoardC4<N>::FullBoard full_board;
   expand_to_full(c4_board, full_board);
 
-  ThreeBoard<FullBoardTraits<N>::kFullN, FullBoardTraits<N>::kWordWidth> forced_full = full_board.force_orthogonal();
+  typename ThreeBoardC4<N>::FullBoard forced_full = full_board.force_orthogonal();
 
   BitBoard<32> proj_on;
   BitBoard<32> proj_off;
@@ -328,7 +321,7 @@ __global__ void expand_project_kernel(board_row_t<32> *known_on,
   base.known_on = BitBoard<32>::load(known_on);
   base.known_off = BitBoard<32>::load(known_off);
 
-  ThreeBoard<FullBoardTraits<N>::kFullN, FullBoardTraits<N>::kWordWidth> full;
+  typename ThreeBoardC4<N>::FullBoard full;
   expand_to_full(base, full);
 
   BitBoard<32> proj_on;
