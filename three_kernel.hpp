@@ -27,5 +27,5 @@ template <unsigned N, unsigned W>
 int solve_with_device_stack();
 
 void init_lookup_tables_host();
-void init_relevant_endpoint_host();
-void init_relevant_endpoint_host_64();
+void init_relevant_endpoint_host(unsigned n);
+void init_relevant_endpoint_host_64(unsigned n);

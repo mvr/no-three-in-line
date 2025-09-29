@@ -171,8 +171,8 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
 template <unsigned N, unsigned W>
 int solve_with_device_stack() {
   init_lookup_tables_host();
-  init_relevant_endpoint_host();
-  init_relevant_endpoint_host_64();
+  init_relevant_endpoint_host(N);
+  init_relevant_endpoint_host_64(N);
 
   DeviceStack<W> *d_stack;
   SolutionBuffer<W> *d_solution_buffer;

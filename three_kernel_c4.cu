@@ -150,8 +150,8 @@ __global__ void work_kernel(DeviceStackC4<N> *stack,
 template <unsigned N>
 int solve_with_device_stack_c4() {
   init_lookup_tables_host();
-  init_relevant_endpoint_host();
-  init_relevant_endpoint_host_64();
+  init_relevant_endpoint_host(ThreeBoardC4<N>::FULL_N);
+  init_relevant_endpoint_host_64(ThreeBoardC4<N>::FULL_N);
 
   DeviceStackC4<N> *d_stack;
   SolutionBufferC4<N> *d_solution_buffer;

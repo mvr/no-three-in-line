@@ -232,7 +232,7 @@ inline void init_lookup_tables_host() {
   cudaMemcpyToSymbol(div_gcd_table, host_div_gcd_table, sizeof(host_div_gcd_table));
 }
 
-inline bool relevant_endpoint(std::pair<unsigned, unsigned> q) {
+inline bool relevant_endpoint(unsigned n, std::pair<unsigned, unsigned> q) {
   if (q.first == 0 || q.second == 0)
     return false;
 
@@ -242,19 +242,21 @@ inline bool relevant_endpoint(std::pair<unsigned, unsigned> q) {
     // There is a point between that needs checking
     return true;
 
-  if(q.first * 3 >= N || q.second * 3 >= N)
+  if(q.first * 3 >= n || q.second * 3 >= n)
     // There is no way a fourth point can fit in the square
     return false;
 
   return true;
 }
 
-inline void init_relevant_endpoint_host() {
+inline void init_relevant_endpoint_host(unsigned n) {
   uint64_t host_relevant_endpoint_table[64] = {0};
 
-  for (unsigned i = 0; i < N; i++) {
-    for (unsigned j = 0; j < N; j++) {
-     bool relevant = relevant_endpoint({i, j});
+  const unsigned limit = n > 32 ? 32 : n;
+
+  for (unsigned i = 0; i < limit; i++) {
+    for (unsigned j = 0; j < limit; j++) {
+     bool relevant = relevant_endpoint(n, {i, j});
      if(relevant) {
        host_relevant_endpoint_table[32+j] |= 1ULL << (32+i);
        host_relevant_endpoint_table[32+j] |= 1ULL << (32-i);
@@ -274,12 +276,14 @@ inline void init_relevant_endpoint_host() {
 // Etc
 // So (0, 0) is stored in A[129], awkwardly
 
-inline void init_relevant_endpoint_host_64() {
+inline void init_relevant_endpoint_host_64(unsigned n) {
   uint64_t host_relevant_endpoint_table_64[256] = {0};
 
-  for (unsigned i = 1; i < N; i++) {
-    for (unsigned j = 1; j < N; j++) {
-     bool relevant = relevant_endpoint({i, j});
+  const unsigned limit = n > 64 ? 64 : n;
+
+  for (unsigned i = 1; i < limit; i++) {
+    for (unsigned j = 1; j < limit; j++) {
+     bool relevant = relevant_endpoint(n, {i, j});
      if(relevant) {
        host_relevant_endpoint_table_64[(64+j)*2 + 0] |= 1ULL << (64-i);
        host_relevant_endpoint_table_64[(64+j)*2 + 1] |= 1ULL << i;
