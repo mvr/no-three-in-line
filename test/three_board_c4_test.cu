@@ -270,8 +270,7 @@ __global__ void eliminate_compare_kernel(board_row_t<32> *known_on,
 
   typename ThreeBoardC4<N>::FullBoard full = base.expand_to_full();
   typename ThreeBoardC4<N>::FullBitBoard full_seeds = base.expand_mask(seeds);
-  full.eliminate_one_hop(full_seeds);
-  full.eliminate_all_lines(full_seeds);
+  full.eliminate_all_lines_unfiltered(full_seeds);
 
   ThreeBoardC4<N> projected;
   projected.project_from_full(full);

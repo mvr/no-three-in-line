@@ -33,6 +33,9 @@ struct ThreeBoard {
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<W> seed);
   _DI_ void eliminate_all_lines() { eliminate_all_lines(known_on); }
+  _DI_ void eliminate_all_lines_unfiltered(cuda::std::pair<unsigned, unsigned> p);
+  _DI_ void eliminate_all_lines_unfiltered(BitBoard<W> seed);
+  _DI_ void eliminate_all_lines_unfiltered() { eliminate_all_lines_unfiltered(known_on); }
 
   _DI_ void eliminate_one_hop(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_one_hop(BitBoard<W> seed);
@@ -570,6 +573,53 @@ ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
         return;
     }
   }
+  known_off &= bounds();
+}
+
+template <unsigned N, unsigned W>
+_DI_ void
+ThreeBoard<N, W>::eliminate_all_lines_unfiltered(cuda::std::pair<unsigned, unsigned> p) {
+  BitBoard<W> qs = known_on;
+  qs.erase(p.first, p.second);
+
+  while (!qs.empty()) {
+    auto q = qs.some_on();
+    qs.erase(q);
+
+    if (p.first == q.first || p.second == q.second)
+      continue;
+
+    known_off |= eliminate_line(p, q);
+    if (!consistent())
+      return;
+  }
+
+  known_off &= bounds();
+}
+
+template <unsigned N, unsigned W>
+_DI_ void
+ThreeBoard<N, W>::eliminate_all_lines_unfiltered(BitBoard<W> ps) {
+  while (!ps.empty()) {
+    auto p = ps.some_on();
+    ps.erase(p);
+
+    BitBoard<W> qs = known_on;
+    qs.erase(p);
+
+    while (!qs.empty()) {
+      auto q = qs.some_on();
+      qs.erase(q);
+
+      if (p.first == q.first || p.second == q.second)
+        continue;
+
+      known_off |= eliminate_line(p, q);
+      if (!consistent())
+        return;
+    }
+  }
+
   known_off &= bounds();
 }
 
