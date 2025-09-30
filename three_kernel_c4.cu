@@ -138,13 +138,22 @@ __global__ void work_kernel(DeviceStackC4<N> *stack,
     return;
   }
 
+
   cuda::std::pair<unsigned, unsigned> cell;
-  auto preferred = unknown.first_near_radius_on<N>();
-  if (preferred.first != -1) {
-    cell = {static_cast<unsigned>(preferred.first), static_cast<unsigned>(preferred.second)};
+
+  BitBoard<32> vulnerable = board.vulnerable();
+  if(!vulnerable.empty()) {
+    auto vulnerable_choice = vulnerable.first_on();
+    cell = {static_cast<unsigned>(vulnerable_choice.first),
+            static_cast<unsigned>(vulnerable_choice.second)};
   } else {
-    auto fallback = unknown.first_on();
-    cell = {static_cast<unsigned>(fallback.first), static_cast<unsigned>(fallback.second)};
+    auto preferred = unknown.first_near_radius_on<N>();
+    if (preferred.first != -1) {
+      cell = {static_cast<unsigned>(preferred.first), static_cast<unsigned>(preferred.second)};
+    } else {
+      auto fallback = unknown.first_on();
+      cell = {static_cast<unsigned>(fallback.first), static_cast<unsigned>(fallback.second)};
+    }
   }
 
   resolve_outcome_cell(board, cell, stack, solution_buffer);

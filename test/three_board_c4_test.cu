@@ -34,6 +34,7 @@ std::string first_arc_choice(const std::vector<cuda::std::pair<int, int>> &candi
   return to_rle<N, 32>(arr);
 }
 
+// TODO: use the symmetry helpers
 template <unsigned N>
 __device__ void expand_to_full(const ThreeBoardC4<N> &source,
                                typename ThreeBoardC4<N>::FullBoard &destination) {
@@ -72,6 +73,7 @@ __device__ void expand_to_full(const ThreeBoardC4<N> &source,
   }
 }
 
+// TODO: use the symmetry helpers
 template <unsigned N>
 __device__ void project_to_fundamental(const typename ThreeBoardC4<N>::FullBoard &full_board,
                                        BitBoard<32> &proj_on,
@@ -96,6 +98,26 @@ __device__ void project_to_fundamental(const typename ThreeBoardC4<N>::FullBoard
   const BitBoard<32> bds = ThreeBoardC4<N>::bounds();
   proj_on &= bds;
   proj_off &= bds;
+}
+
+// TODO: use the symmetry helpers
+template <unsigned N>
+__device__ BitBoard<32> project_mask_to_fundamental(const typename ThreeBoardC4<N>::FullBitBoard &mask) {
+  BitBoard<32> proj;
+
+  for (int y = 0; y < static_cast<int>(N); ++y) {
+    for (int x = 0; x < static_cast<int>(N); ++x) {
+      const unsigned fx = static_cast<unsigned>(x + N);
+      const unsigned fy = static_cast<unsigned>(y + N);
+
+      if (mask.get(fx, fy)) {
+        proj.set(x, y);
+      }
+    }
+  }
+
+  proj &= ThreeBoardC4<N>::bounds();
+  return proj;
 }
 
 template <unsigned N>
@@ -134,6 +156,24 @@ __global__ void force_compare_kernel(board_row_t<32> *known_on,
   if ((threadIdx.x & 31) == 0) {
     *full_consistency = full_ok;
   }
+}
+
+template <unsigned N>
+__global__ void vulnerable_compare_kernel(board_row_t<32> *known_on,
+                                          board_row_t<32> *known_off,
+                                          board_row_t<32> *c4_vulnerable_out,
+                                          board_row_t<32> *full_vulnerable_out) {
+  ThreeBoardC4<N> board;
+  board.known_on = BitBoard<32>::load(known_on);
+  board.known_off = BitBoard<32>::load(known_off);
+
+  BitBoard<32> c4_vulnerable = board.vulnerable();
+  c4_vulnerable.save(c4_vulnerable_out);
+
+  typename ThreeBoardC4<N>::FullBoard full_board = board.expand_to_full();
+  auto full_vulnerable = full_board.vulnerable();
+  BitBoard<32> projected = project_mask_to_fundamental<N>(full_vulnerable);
+  projected.save(full_vulnerable_out);
 }
 
 template <unsigned N>
@@ -322,6 +362,47 @@ void expect_eliminate_matches(const std::string &known_on_rle,
 }
 
 template <unsigned N>
+void compute_vulnerable_rles(const std::string &known_on_rle,
+                             const std::string &known_off_rle,
+                             std::string &c4_rle,
+                             std::string &full_rle) {
+  const auto host_known_on = parse_rle<32>(known_on_rle);
+  const auto host_known_off = parse_rle<32>(known_off_rle);
+
+  board_row_t<32> *d_known_on = nullptr;
+  board_row_t<32> *d_known_off = nullptr;
+  board_row_t<32> *d_c4_vulnerable = nullptr;
+  board_row_t<32> *d_full_vulnerable = nullptr;
+
+  const size_t bytes = sizeof(board_array_t<32>);
+
+  cudaMalloc(&d_known_on, bytes);
+  cudaMalloc(&d_known_off, bytes);
+  cudaMalloc(&d_c4_vulnerable, bytes);
+  cudaMalloc(&d_full_vulnerable, bytes);
+
+  cudaMemcpy(d_known_on, host_known_on.data(), bytes, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_known_off, host_known_off.data(), bytes, cudaMemcpyHostToDevice);
+
+  vulnerable_compare_kernel<N><<<1, 32>>>(d_known_on, d_known_off,
+                                          d_c4_vulnerable, d_full_vulnerable);
+  cudaDeviceSynchronize();
+
+  board_array_t<32> c4_vulnerable;
+  board_array_t<32> full_vulnerable;
+  cudaMemcpy(c4_vulnerable.data(), d_c4_vulnerable, bytes, cudaMemcpyDeviceToHost);
+  cudaMemcpy(full_vulnerable.data(), d_full_vulnerable, bytes, cudaMemcpyDeviceToHost);
+
+  c4_rle = to_rle<N, 32>(c4_vulnerable);
+  full_rle = to_rle<N, 32>(full_vulnerable);
+
+  cudaFree(d_known_on);
+  cudaFree(d_known_off);
+  cudaFree(d_c4_vulnerable);
+  cudaFree(d_full_vulnerable);
+}
+
+template <unsigned N>
 __global__ void first_near_radius_on_kernel(const board_row_t<32> *mask,
                                          cuda::std::pair<int, int> *out) {
   BitBoard<32> board = BitBoard<32>::load(mask);
@@ -466,4 +547,27 @@ TEST(BitBoardClosestToRadius, ChoosesBetterRow) {
 TEST(BitBoardClosestToRadius, BreaksTieWithinRow) {
   // row 2 picks column 3 over column 2 because it sits closer to the arc distance
   expect_first_near_radius_on<6>(first_arc_choice<6>({{2, 2}, {3, 2}}), {3, 2});
+}
+
+TEST(ThreeBoardC4, VulnerableMatchesFullBoard_Empty) {
+  std::string c4, full;
+  compute_vulnerable_rles<6>("!", "!", c4, full);
+  EXPECT_EQ(c4, full);
+  EXPECT_EQ(c4, "!");
+}
+
+TEST(ThreeBoardC4, VulnerableMatchesFullBoard_ZeroTriggered) {
+  std::string c4, full;
+  compute_vulnerable_rles<6>("!", "o2b3o$o2$o$o$o!", c4, full);
+
+  EXPECT_EQ(c4, full);
+  EXPECT_NE(c4, "!");
+}
+
+TEST(ThreeBoardC4, VulnerableMatchesFullBoard_OneTriggered) {
+  std::string c4, full;
+  compute_vulnerable_rles<6>("2bo!", "o2b3o$o2$o$o$o!", c4, full);
+
+  EXPECT_EQ(c4, full);
+  EXPECT_NE(c4, "!");
 }

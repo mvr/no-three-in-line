@@ -220,6 +220,22 @@ _DI_ BinaryCount<W> count_vertically(const board_row_t<W> value) {
   return result;
 }
 
+template <unsigned W>
+_DI_ BinaryCount<W> count_horizontally(const board_row_t<W> value) {
+  BinaryCount<W> result{};
+
+  const unsigned pop = popcount<W>(value);
+  const bool bit0 = (pop & 1u) != 0u;
+  const bool bit1 = (pop & 2u) != 0u;
+  const bool overflow = pop >= 4u;
+
+  const unsigned mask = __activemask();
+  result.bit0 = __ballot_sync(mask, bit0);
+  result.bit1 = __ballot_sync(mask, bit1);
+  result.overflow = __ballot_sync(mask, overflow);
+  return result;
+}
+
 inline void init_lookup_tables_host() {
   unsigned char host_div_gcd_table[64][64];
 

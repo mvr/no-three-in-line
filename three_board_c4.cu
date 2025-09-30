@@ -44,6 +44,7 @@ struct ThreeBoardC4 {
   _DI_ bool operator==(const ThreeBoardC4<N> &other) const;
 
   _DI_ ThreeBoardC4<N> force_orthogonal() const;
+  _DI_ BitBoard<32> vulnerable() const;
   _DI_ void apply_bounds();
 
   static constexpr unsigned FULL_N = 2 * N;
@@ -158,6 +159,55 @@ _DI_ ThreeBoardC4<N> ThreeBoardC4<N>::force_orthogonal() const {
   return result;
 }
 
+template <unsigned N>
+_DI_ BitBoard<32> ThreeBoardC4<N>::vulnerable() const {
+  BitBoard<32> result;
+
+  BitBoard<32> unknown = (~known_on & ~known_off) & bounds();
+
+  const BinaryCount<32> row_on_counter = count_horizontally<32>(known_on.state);
+  const BinaryCount<32> col_on_counter = count_vertically<32>(known_on.state);
+  const BinaryCount<32> total_on_counter = row_on_counter + col_on_counter;
+
+  const BinaryCount<32> row_unknown_counter = count_horizontally<32>(unknown.state);
+  const BinaryCount<32> col_unknown_counter = count_vertically<32>(unknown.state);
+  const BinaryCount<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
+
+  auto eq0 = [](const BinaryCount<32> &cnt) {
+    return ~cnt.bit0 & ~cnt.bit1 & ~cnt.overflow;
+  };
+  auto eq1 = [](const BinaryCount<32> &cnt) {
+    return cnt.bit0 & ~cnt.bit1 & ~cnt.overflow;
+  };
+  auto eq2 = [](const BinaryCount<32> &cnt) {
+    return ~cnt.bit0 & cnt.bit1 & ~cnt.overflow;
+  };
+  auto eq3 = [](const BinaryCount<32> &cnt) {
+    return cnt.bit0 & cnt.bit1 & ~cnt.overflow;
+  };
+
+  const board_row_t<32> total_on_eq_0 = eq0(total_on_counter);
+  const board_row_t<32> total_on_eq_1 = eq1(total_on_counter);
+  const board_row_t<32> total_unknown_eq_2 = eq2(total_unknown_counter);
+  const board_row_t<32> total_unknown_eq_3 = eq3(total_unknown_counter);
+
+  const board_row_t<32> vulnerable_rows =
+    (total_on_eq_1 & total_unknown_eq_2) | (total_on_eq_0 & total_unknown_eq_3);
+
+  const board_row_t<32> lane_bit = 1u << (threadIdx.x & 31);
+
+  if (vulnerable_rows & lane_bit) {
+    result.state = ~0u;
+  }
+
+  result.state |= vulnerable_rows;
+
+  result &= unknown & bounds();
+
+  return result;
+}
+
+// TODO just use symmetry helpers
 template <unsigned N>
 _DI_ typename ThreeBoardC4<N>::FullBoard ThreeBoardC4<N>::expand_to_full() const {
   FullBoard full;
