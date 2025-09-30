@@ -25,6 +25,14 @@ std::string empty_rle() {
   return to_rle<N, 32>(arr);
 }
 
+template <unsigned N>
+std::string first_arc_choice(const std::vector<cuda::std::pair<int, int>> &candidates) {
+  board_array_t<32> arr{};
+  for (const auto &pt : candidates) {
+    arr[pt.second] |= board_row_t<32>(1u) << pt.first;
+  }
+  return to_rle<N, 32>(arr);
+}
 
 template <unsigned N>
 __device__ void expand_to_full(const ThreeBoardC4<N> &source,
@@ -314,6 +322,31 @@ void expect_eliminate_matches(const std::string &known_on_rle,
 }
 
 template <unsigned N>
+__global__ void first_near_radius_on_kernel(const board_row_t<32> *mask,
+                                         cuda::std::pair<int, int> *out) {
+  BitBoard<32> board = BitBoard<32>::load(mask);
+  *out = board.first_near_radius_on<N>();
+}
+
+template <unsigned N>
+void expect_first_near_radius_on(const std::string &mask_rle,
+                              cuda::std::pair<int, int> expected) {
+  board_array_t<32> host_mask = parse_rle<32>(mask_rle);
+  board_row_t<32> *d_mask;
+  cuda::std::pair<int, int> *d_out;
+  cudaMalloc(&d_mask, sizeof(board_array_t<32>));
+  cudaMalloc(&d_out, sizeof(cuda::std::pair<int, int>));
+  cudaMemcpy(d_mask, host_mask.data(), sizeof(board_array_t<32>), cudaMemcpyHostToDevice);
+  first_near_radius_on_kernel<N><<<1, 32>>>(d_mask, d_out);
+  cuda::std::pair<int, int> result;
+  cudaMemcpy(&result, d_out, sizeof(result), cudaMemcpyDeviceToHost);
+  EXPECT_EQ(expected.first, result.first);
+  EXPECT_EQ(expected.second, result.second);
+  cudaFree(d_mask);
+  cudaFree(d_out);
+}
+
+template <unsigned N>
 __global__ void expand_project_kernel(board_row_t<32> *known_on,
                                       board_row_t<32> *known_off,
                                       board_row_t<32> *projected_on,
@@ -414,4 +447,23 @@ TEST(ThreeBoardC4, EliminateMatchesFullBoard_TwoSeeds) {
 TEST(ThreeBoardC4, EliminateMatchesFullBoard_WithKnownOff) {
   expect_eliminate_matches<6>(rle_from_points<6>({{1, 1}}), rle_from_points<6>({{0, 0}, {2, 4}}),
                               rle_from_points<6>({{3, 2}}));
+}
+
+TEST(BitBoardClosestToRadius, PrefersOuterArc) {
+  // row 0: bits at columns 1 (close to centre) and 3 (closer to radius for N=6)
+  expect_first_near_radius_on<6>(first_arc_choice<6>({{1, 0}, {3, 0}}), {3, 0});
+}
+
+TEST(BitBoardClosestToRadius, EmptyRow) {
+  expect_first_near_radius_on<6>(empty_rle<6>(), {-1, -1});
+}
+
+TEST(BitBoardClosestToRadius, ChoosesBetterRow) {
+  // row 0 @ col 4 vs row 1 @ col 5; row 1 is closer to the radius arc
+  expect_first_near_radius_on<6>(first_arc_choice<6>({{4, 0}, {5, 1}}), {5, 1});
+}
+
+TEST(BitBoardClosestToRadius, BreaksTieWithinRow) {
+  // row 2 picks column 3 over column 2 because it sits closer to the arc distance
+  expect_first_near_radius_on<6>(first_arc_choice<6>({{2, 2}, {3, 2}}), {3, 2});
 }

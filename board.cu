@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 #include <cuda/std/utility>
+#include <limits>
+#include <cmath>
 
 #include "common.hpp"
 
@@ -130,6 +132,8 @@ struct BitBoard {
 
   template<unsigned N>
   _DI_ cuda::std::pair<int, int> first_center_on() const;
+  template<unsigned N>
+  _DI_ cuda::std::pair<int, int> first_near_radius_on() const;
 
   _DI_ void print() const;
 };
@@ -452,6 +456,61 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_center_on<N>() const {
     col = __shfl_sync(0xffffffff, col, 0);
 
     return {col + static_cast<int>(center), row + static_cast<int>(center)};
+  }
+}
+
+template <unsigned W>
+template <unsigned N>
+_DI_ cuda::std::pair<int, int> BitBoard<W>::first_near_radius_on() const {
+  if constexpr (W == 32) {
+    int row = threadIdx.x & 31;
+    unsigned arc_position = sqrtf(N*N-row*row);
+
+    uint32_t right_shifted = state >> arc_position;
+    int right_closest = find_first_set<32>(right_shifted);
+
+    uint32_t left_shifted = __brev(state) >> (32 - arc_position);
+    int left_closest = -(int)find_first_set<32>(left_shifted) - 1;
+
+    int col;
+    if (left_shifted == 0 && right_shifted == 0)
+      col = N;
+    else if (left_shifted != 0 && right_shifted == 0)
+      col = left_closest + arc_position;
+    else if (left_shifted == 0 && right_shifted != 0)
+      col = right_closest + arc_position;
+    else if (std::abs(left_closest) < std::abs(right_closest))
+      col = left_closest + arc_position;
+    else
+      col = right_closest + arc_position;
+
+    unsigned dist2 = std::abs((int)(N * N - row * row - col * col));
+    if (col == N)
+      dist2 = std::numeric_limits<int>::max();
+
+    for (int offset = 16; offset > 0; offset /= 2) {
+      int other_row = __shfl_down_sync(0xffffffff, row, offset);
+      int other_col = __shfl_down_sync(0xffffffff, col, offset);
+      unsigned other_dist2 = __shfl_down_sync(0xffffffff, dist2, offset);
+
+      if (other_dist2 < dist2) {
+        row = other_row;
+        col = other_col;
+        dist2 = other_dist2;
+      }
+    }
+
+    row = __shfl_sync(0xffffffff, row, 0);
+    col = __shfl_sync(0xffffffff, col, 0);
+    dist2 = __shfl_sync(0xffffffff, dist2, 0);
+
+    if (dist2 == std::numeric_limits<int>::max())
+      return {-1, -1};
+
+    return {col, row};
+  } else {
+    // TODO: Implement for W == 64 if needed.
+    return {-1, -1};
   }
 }
 

@@ -138,11 +138,14 @@ __global__ void work_kernel(DeviceStackC4<N> *stack,
     return;
   }
 
-  auto unknown_cell = unknown.first_on();
-  cuda::std::pair<unsigned, unsigned> cell = {
-    static_cast<unsigned>(unknown_cell.first),
-    static_cast<unsigned>(unknown_cell.second)
-  };
+  cuda::std::pair<unsigned, unsigned> cell;
+  auto preferred = unknown.first_near_radius_on<N>();
+  if (preferred.first != -1) {
+    cell = {static_cast<unsigned>(preferred.first), static_cast<unsigned>(preferred.second)};
+  } else {
+    auto fallback = unknown.first_on();
+    cell = {static_cast<unsigned>(fallback.first), static_cast<unsigned>(fallback.second)};
+  }
 
   resolve_outcome_cell(board, cell, stack, solution_buffer);
 }
