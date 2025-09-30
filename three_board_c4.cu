@@ -7,23 +7,6 @@
 #include <cuda/std/array>
 #include <cuda/std/utility>
 
-_DI_ int div_floor_int(int a, int b) {
-  int q = a / b;
-  int r = a % b;
-  if ((r != 0) && ((r > 0) != (b > 0))) {
-    --q;
-  }
-  return q;
-}
-
-_DI_ int mod_floor_int(int a, int b) {
-  int r = a % b;
-  if ((r != 0) && ((r > 0) != (b > 0))) {
-    r += b;
-  }
-  return r;
-}
-
 // C4-symmetric board 2N × 2N for N up to 32. Stores only the
 // fundamental domain [0, N) × [0, N); the remaining three quadrants are
 // implied by fourfold rotational symmetry around (-0.5, -0.5).
@@ -68,6 +51,9 @@ struct ThreeBoardC4 {
 
   _DI_ BitBoard<32> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
   _DI_ BitBoard<32> eliminate_pair(cuda::std::pair<int, int> pi, cuda::std::pair<int, int> qj) const;
+  _DI_ BitBoard<32> eliminate_pair_steps(cuda::std::pair<int, int> pi,
+                                         cuda::std::pair<int, int> qj,
+                                         int step_x, int step_y) const;
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<32> seed);
 
@@ -382,27 +368,25 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_pair(cuda::std::pair<int, int> pi,
 
   const unsigned step_x_mag = div_gcd_table[abs_dx][abs_dy];
   const unsigned step_y_mag = div_gcd_table[abs_dy][abs_dx];
-  int step_x = (dx < 0 ? -static_cast<int>(step_x_mag) : static_cast<int>(step_x_mag));
-  int step_y = (dy < 0 ? -static_cast<int>(step_y_mag) : static_cast<int>(step_y_mag));
-  if (step_y == 0)
-    return result;
+  return eliminate_pair(pi, qj, dx, dy, step_x_mag, step_y_mag);
+}
+
+template <unsigned N>
+_DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_pair_steps(cuda::std::pair<int, int> pi,
+                                                        cuda::std::pair<int, int> qj,
+                                                        int step_x, int step_y) const {
+  BitBoard<32> result;
 
   int row = static_cast<int>(threadIdx.x & 31);
-  if (row >= static_cast<int>(N))
+
+  if (pi.second == row || qj.second == row)
     return result;
 
   int diff = row - pi.second;
-  if (mod_floor_int(diff, step_y) != 0)
+  if (diff % step_y != 0)
     return result;
 
-  const bool pi_row_in_domain = (pi.second >= 0 && pi.second < static_cast<int>(N));
-  const bool qj_row_in_domain = (qj.second >= 0 && qj.second < static_cast<int>(N));
-  if (pi_row_in_domain && pi.second == row)
-    return result;
-  if (qj_row_in_domain && qj.second == row)
-    return result;
-
-  int k = div_floor_int(diff, step_y);
+  int k = diff / step_y;
   int col = pi.first + step_x * k;
   if (col < 0 || col >= static_cast<int>(N))
     return result;
@@ -416,16 +400,54 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_line(cuda::std::pair<unsigned, unsi
                                                   cuda::std::pair<unsigned, unsigned> q) {
   BitBoard<32> result;
 
-  const auto orbit_p = orbit({static_cast<int>(p.first), static_cast<int>(p.second)});
-  const auto orbit_q = orbit({static_cast<int>(q.first), static_cast<int>(q.second)});
+  const auto orbit_p = orbit(p);
+  const auto orbit_q = orbit(q);
 
-  #pragma unroll
-  for (int i = 0; i < 4; ++i) {
-    #pragma unroll
-    for (int j = 0; j < 4; ++j) {
-      result |= eliminate_pair(orbit_p[i], orbit_q[j]);
+  auto process_family = [&](int q_offset) {
+    const auto &p_base = orbit_p[0];
+    const auto &q_base = orbit_q[q_offset];
+
+    int dx = q_base.first - p_base.first;
+    int dy = q_base.second - p_base.second;
+
+    if (dx == 0 || dy == 0)
+      return;
+
+    const unsigned abs_dx = std::abs(dx);
+    const unsigned abs_dy = std::abs(dy);
+
+    int current_step_x = (dx < 0 ? -1 : 1) * static_cast<int>(div_gcd_table[abs_dx][abs_dy]);
+    int current_step_y = (dy < 0 ? -1 : 1) * static_cast<int>(div_gcd_table[abs_dy][abs_dx]);
+
+    if (current_step_y < 0) {
+      current_step_y = -current_step_y;
+      current_step_x = -current_step_x;
     }
-  }
+
+    for (int r = 0; r < 4; ++r) {
+      const auto &pi = orbit_p[r & 3];
+      const auto &qj = orbit_q[(q_offset + r) & 3];
+
+      result |= eliminate_pair_steps(pi, qj, current_step_x, current_step_y);
+
+      int next_step_x = -current_step_y;
+      int next_step_y = current_step_x;
+
+      // Normalise so that the y-step is always positive
+      if (next_step_y < 0) {
+        next_step_y = -next_step_y;
+        next_step_x = -next_step_x;
+      }
+
+      current_step_x = next_step_x;
+      current_step_y = next_step_y;
+    }
+  };
+
+  process_family(0);
+  process_family(1);
+  process_family(2);
+  process_family(3);
 
   result &= bounds();
   return result;
