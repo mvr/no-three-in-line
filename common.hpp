@@ -46,13 +46,13 @@ enum class LexStatus {
 template<unsigned W>
 _HD_ int popcount(board_row_t<W> x) {
   if constexpr (W == 32) {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return __popc(x);
     #else
     return __builtin_popcount(x);
     #endif
   } else {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return __popcll(x);
     #else
     return __builtin_popcountll(x);
@@ -63,13 +63,13 @@ _HD_ int popcount(board_row_t<W> x) {
 template<unsigned W>
 _HD_ int find_first_set(board_row_t<W> x) {
   if constexpr (W == 32) {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return __ffs(x) - 1;
     #else
     return __builtin_ffs(x);
     #endif
   } else {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return __ffsll(x) - 1;
     #else
     return __builtin_ffsll(x);
@@ -80,13 +80,13 @@ _HD_ int find_first_set(board_row_t<W> x) {
 template<unsigned W>
 _HD_ int find_last_set(board_row_t<W> x) {
   if constexpr (W == 32) {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return 31 - __clz(x);
     #else
     return 31 - __builtin_clz(x);
     #endif
   } else {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return 63 - __clzll(x);
     #else
     return 63 - __builtin_clzll(x);
@@ -97,13 +97,13 @@ _HD_ int find_last_set(board_row_t<W> x) {
 template<unsigned W>
 _HD_ int count_trailing_zeros(board_row_t<W> x) {
   if constexpr (W == 32) {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return __clz(__brev(x));
     #else
     return __builtin_ctz(x);
     #endif
   } else {
-    #ifdef __CUDACC__
+    #ifdef __CUDA_ARCH__
     return __clzll(__brevll(x));
     #else
     return __builtin_ctzll(x);
