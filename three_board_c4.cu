@@ -52,8 +52,9 @@ struct ThreeBoardC4 {
   using FullBoard = ThreeBoard<FULL_N, FULL_W>;
   using FullBitBoard = BitBoard<FULL_W>;
 
+  static _DI_ FullBitBoard expand_mask(BitBoard<32> mask);
+  static _DI_ BitBoard<32> project_mask(const FullBitBoard &mask);
   _DI_ FullBoard expand_to_full() const;
-  _DI_ FullBitBoard expand_mask(BitBoard<32> mask) const;
   _DI_ void project_from_full(const FullBoard &full);
 
   // Helpers for reasoning about orbits.
@@ -62,6 +63,8 @@ struct ThreeBoardC4 {
   static _DI_ bool in_domain(cuda::std::pair<int, int> p);
   static _DI_ cuda::std::pair<int, int> fold_to_domain(cuda::std::pair<int, int> p, int &rotation);
   static _DI_ cuda::std::array<cuda::std::pair<int, int>, 4> orbit(cuda::std::pair<int, int> p);
+  template <typename Visitor>
+  static _DI_ void for_each_orbit_point(cuda::std::pair<int, int> p, Visitor &&visitor);
 
   _DI_ BitBoard<32> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
   _DI_ BitBoard<32> eliminate_pair(cuda::std::pair<int, int> pi, cuda::std::pair<int, int> qj) const;
@@ -224,16 +227,16 @@ _DI_ typename ThreeBoardC4<N>::FullBoard ThreeBoardC4<N>::expand_to_full() const
       if (!is_on && !is_off)
         continue;
 
-      const auto pts = orbit({x, y});
-      #pragma unroll
-      for (int r = 0; r < 4; ++r) {
-        const int board_x = pts[r].first + static_cast<int>(N);
-        const int board_y = pts[r].second + static_cast<int>(N);
-        if (is_on)
+      for_each_orbit_point({x, y}, [&](cuda::std::pair<int, int> pt) {
+        const int board_x = pt.first + static_cast<int>(N);
+        const int board_y = pt.second + static_cast<int>(N);
+        if (is_on) {
           full.known_on.set(board_x, board_y);
-        if (is_off)
+        }
+        if (is_off) {
           full.known_off.set(board_x, board_y);
-      }
+        }
+      });
     }
   }
 
@@ -264,22 +267,46 @@ _DI_ void ThreeBoardC4<N>::project_from_full(const FullBoard &full) {
 }
 
 template <unsigned N>
-_DI_ typename ThreeBoardC4<N>::FullBitBoard ThreeBoardC4<N>::expand_mask(BitBoard<32> mask) const {
+_DI_ typename ThreeBoardC4<N>::FullBitBoard ThreeBoardC4<N>::expand_mask(BitBoard<32> mask) {
   FullBitBoard result;
 
   while (!mask.empty()) {
     auto cell = mask.some_on();
     mask.erase(cell);
 
-    const auto pts = orbit(cell);
-    #pragma unroll
-    for (int r = 0; r < 4; ++r) {
-      const int fx = pts[r].first + static_cast<int>(N);
-      const int fy = pts[r].second + static_cast<int>(N);
+    for_each_orbit_point(cell, [&](cuda::std::pair<int, int> pt) {
+      const int fx = pt.first + static_cast<int>(N);
+      const int fy = pt.second + static_cast<int>(N);
       result.set(fx, fy);
+    });
+  }
+
+  return result;
+}
+
+template <unsigned N>
+_DI_ BitBoard<32> ThreeBoardC4<N>::project_mask(const FullBitBoard &mask) {
+  BitBoard<32> result;
+
+  for (int y = 0; y < static_cast<int>(N); ++y) {
+    for (int x = 0; x < static_cast<int>(N); ++x) {
+      bool set = false;
+      for_each_orbit_point({x, y}, [&](cuda::std::pair<int, int> pt) {
+        if (set) return;
+        const int fx = pt.first + static_cast<int>(N);
+        const int fy = pt.second + static_cast<int>(N);
+        if (mask.get(fx, fy)) {
+          set = true;
+        }
+      });
+
+      if (set) {
+        result.set(x, y);
+      }
     }
   }
 
+  result &= bounds();
   return result;
 }
 
@@ -325,6 +352,16 @@ _DI_ cuda::std::array<cuda::std::pair<int, int>, 4> ThreeBoardC4<N>::orbit(cuda:
     result[r] = rotate90(result[r - 1]);
   }
   return result;
+}
+
+template <unsigned N>
+template <typename Visitor>
+_DI_ void ThreeBoardC4<N>::for_each_orbit_point(cuda::std::pair<int, int> p, Visitor &&visitor) {
+  const auto pts = orbit(p);
+  #pragma unroll
+  for (int r = 0; r < 4; ++r) {
+    visitor(pts[r]);
+  }
 }
 
 template <unsigned N>

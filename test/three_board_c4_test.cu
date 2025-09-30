@@ -34,92 +34,6 @@ std::string first_arc_choice(const std::vector<cuda::std::pair<int, int>> &candi
   return to_rle<N, 32>(arr);
 }
 
-// TODO: use the symmetry helpers
-template <unsigned N>
-__device__ void expand_to_full(const ThreeBoardC4<N> &source,
-                               typename ThreeBoardC4<N>::FullBoard &destination) {
-  destination.known_on = typename ThreeBoardC4<N>::FullBitBoard();
-  destination.known_off = typename ThreeBoardC4<N>::FullBitBoard();
-
-  for (int y = 0; y < static_cast<int>(N); ++y) {
-    const board_row_t<32> row_on = source.known_on.row(y);
-    const board_row_t<32> row_off = source.known_off.row(y);
-
-    for (int x = 0; x < static_cast<int>(N); ++x) {
-      const board_row_t<32> bit = board_row_t<32>(1u) << x;
-      const bool is_on = (row_on & bit) != 0;
-      const bool is_off = (row_off & bit) != 0;
-
-      if (!is_on && !is_off) {
-        continue;
-      }
-
-      const auto orbit = ThreeBoardC4<N>::orbit({x, y});
-      #pragma unroll
-      for (int r = 0; r < 4; ++r) {
-        const int actual_x = orbit[r].first;
-        const int actual_y = orbit[r].second;
-        const int board_x = actual_x + static_cast<int>(N);
-        const int board_y = actual_y + static_cast<int>(N);
-
-        if (is_on) {
-          destination.known_on.set(board_x, board_y);
-        }
-        if (is_off) {
-          destination.known_off.set(board_x, board_y);
-        }
-      }
-    }
-  }
-}
-
-// TODO: use the symmetry helpers
-template <unsigned N>
-__device__ void project_to_fundamental(const typename ThreeBoardC4<N>::FullBoard &full_board,
-                                       BitBoard<32> &proj_on,
-                                       BitBoard<32> &proj_off) {
-  proj_on = BitBoard<32>();
-  proj_off = BitBoard<32>();
-
-  for (int y = 0; y < static_cast<int>(N); ++y) {
-    for (int x = 0; x < static_cast<int>(N); ++x) {
-      const int board_x = x + static_cast<int>(N);
-      const int board_y = y + static_cast<int>(N);
-
-      if (full_board.known_on.get(board_x, board_y)) {
-        proj_on.set(x, y);
-      }
-      if (full_board.known_off.get(board_x, board_y)) {
-        proj_off.set(x, y);
-      }
-    }
-  }
-
-  const BitBoard<32> bds = ThreeBoardC4<N>::bounds();
-  proj_on &= bds;
-  proj_off &= bds;
-}
-
-// TODO: use the symmetry helpers
-template <unsigned N>
-__device__ BitBoard<32> project_mask_to_fundamental(const typename ThreeBoardC4<N>::FullBitBoard &mask) {
-  BitBoard<32> proj;
-
-  for (int y = 0; y < static_cast<int>(N); ++y) {
-    for (int x = 0; x < static_cast<int>(N); ++x) {
-      const unsigned fx = static_cast<unsigned>(x + N);
-      const unsigned fy = static_cast<unsigned>(y + N);
-
-      if (mask.get(fx, fy)) {
-        proj.set(x, y);
-      }
-    }
-  }
-
-  proj &= ThreeBoardC4<N>::bounds();
-  return proj;
-}
-
 template <unsigned N>
 __global__ void force_compare_kernel(board_row_t<32> *known_on,
                                      board_row_t<32> *known_off,
@@ -141,17 +55,13 @@ __global__ void force_compare_kernel(board_row_t<32> *known_on,
     *c4_consistency = c4_ok;
   }
 
-  typename ThreeBoardC4<N>::FullBoard full_board;
-  expand_to_full(c4_board, full_board);
-
+  typename ThreeBoardC4<N>::FullBoard full_board = c4_board.expand_to_full();
   typename ThreeBoardC4<N>::FullBoard forced_full = full_board.force_orthogonal();
 
-  BitBoard<32> proj_on;
-  BitBoard<32> proj_off;
-  project_to_fundamental<N>(forced_full, proj_on, proj_off);
-
-  proj_on.save(full_on_out);
-  proj_off.save(full_off_out);
+  ThreeBoardC4<N> projected;
+  projected.project_from_full(forced_full);
+  projected.known_on.save(full_on_out);
+  projected.known_off.save(full_off_out);
   const bool full_ok = forced_full.consistent();
   if ((threadIdx.x & 31) == 0) {
     *full_consistency = full_ok;
@@ -172,7 +82,7 @@ __global__ void vulnerable_compare_kernel(board_row_t<32> *known_on,
 
   typename ThreeBoardC4<N>::FullBoard full_board = board.expand_to_full();
   auto full_vulnerable = full_board.vulnerable();
-  BitBoard<32> projected = project_mask_to_fundamental<N>(full_vulnerable);
+  BitBoard<32> projected = ThreeBoardC4<N>::project_mask(full_vulnerable);
   projected.save(full_vulnerable_out);
 }
 
@@ -435,15 +345,12 @@ __global__ void expand_project_kernel(board_row_t<32> *known_on,
   base.known_on = BitBoard<32>::load(known_on);
   base.known_off = BitBoard<32>::load(known_off);
 
-  typename ThreeBoardC4<N>::FullBoard full;
-  expand_to_full(base, full);
+  typename ThreeBoardC4<N>::FullBoard full = base.expand_to_full();
 
-  BitBoard<32> proj_on;
-  BitBoard<32> proj_off;
-  project_to_fundamental<N>(full, proj_on, proj_off);
-
-  proj_on.save(projected_on);
-  proj_off.save(projected_off);
+  ThreeBoardC4<N> projected;
+  projected.project_from_full(full);
+  projected.known_on.save(projected_on);
+  projected.known_off.save(projected_off);
 }
 
 template <unsigned N>
