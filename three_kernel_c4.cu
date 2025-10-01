@@ -11,15 +11,13 @@
 #include "parsing.hpp"
 #include "params.hpp"
 
-template <unsigned N>
 struct DeviceProblemC4 {
-  board_array_t<32> known_on;
-  board_array_t<32> known_off;
+  BitBoard<32> known_on;
+  BitBoard<32> known_off;
 };
 
-template <unsigned N>
 struct DeviceStackC4 {
-  DeviceProblemC4<N> problems[STACK_CAPACITY];
+  ProblemC4 problems[STACK_CAPACITY];
   unsigned size;
 };
 
@@ -29,8 +27,7 @@ struct SolutionBufferC4 {
   unsigned size;
 };
 
-template <unsigned N>
-__device__ bool stack_push(DeviceStackC4<N> *stack, const DeviceProblemC4<N> &problem) {
+__device__ bool stack_push(DeviceStackC4 *stack, const DeviceProblemC4 &problem) {
   unsigned old_size;
   if ((threadIdx.x & 31) == 0) {
     old_size = atomicAdd(&stack->size, 1);
@@ -41,11 +38,8 @@ __device__ bool stack_push(DeviceStackC4<N> *stack, const DeviceProblemC4<N> &pr
     return false;
   }
 
-  int row = threadIdx.x & 31;
-  if (row < static_cast<int>(N)) {
-    stack->problems[old_size].known_on[row] = problem.known_on[row];
-    stack->problems[old_size].known_off[row] = problem.known_off[row];
-  }
+  problem.known_on.save(stack->problems[old_size].known_on.data());
+  problem.known_off.save(stack->problems[old_size].known_off.data());
 
   return true;
 }
@@ -72,7 +66,7 @@ __device__ bool solution_buffer_push(SolutionBufferC4<N> *buffer, const ThreeBoa
 template <unsigned N>
 __device__ void resolve_outcome_cell(const ThreeBoardC4<N> &board,
                                      cuda::std::pair<unsigned, unsigned> cell,
-                                     DeviceStackC4<N> *stack,
+                                     DeviceStackC4 *stack,
                                      SolutionBufferC4<N> *solution_buffer) {
   {
     ThreeBoardC4<N> sub_board = board;
@@ -80,9 +74,7 @@ __device__ void resolve_outcome_cell(const ThreeBoardC4<N> &board,
     sub_board.eliminate_all_lines(cell);
     sub_board.propagate();
     if (sub_board.consistent()) {
-      DeviceProblemC4<N> problem;
-      sub_board.known_on.save(problem.known_on.data());
-      sub_board.known_off.save(problem.known_off.data());
+      DeviceProblemC4 problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
     }
   }
@@ -91,16 +83,14 @@ __device__ void resolve_outcome_cell(const ThreeBoardC4<N> &board,
     sub_board.known_off.set(static_cast<int>(cell.first), static_cast<int>(cell.second));
     sub_board.propagate();
     if (sub_board.consistent()) {
-      DeviceProblemC4<N> problem;
-      sub_board.known_on.save(problem.known_on.data());
-      sub_board.known_off.save(problem.known_off.data());
+      DeviceProblemC4 problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
     }
   }
 }
 
 template <unsigned N>
-__global__ void initialize_stack_kernel(DeviceStackC4<N> *stack) {
+__global__ void initialize_stack_kernel(DeviceStackC4 *stack) {
   if ((threadIdx.x & 31) == 0) {
     stack->size = 1;
   }
@@ -111,7 +101,7 @@ __global__ void initialize_stack_kernel(DeviceStackC4<N> *stack) {
 }
 
 template <unsigned N>
-__global__ void work_kernel(DeviceStackC4<N> *stack,
+__global__ void work_kernel(DeviceStackC4 *stack,
                             SolutionBufferC4<N> *solution_buffer,
                             unsigned batch_start,
                             unsigned batch_size) {
@@ -171,13 +161,13 @@ int solve_with_device_stack_c4() {
   init_relevant_endpoint_host(ThreeBoardC4<N>::FULL_N);
   init_relevant_endpoint_host_64(ThreeBoardC4<N>::FULL_N);
 
-  DeviceStackC4<N> *d_stack;
+  DeviceStackC4 *d_stack;
   SolutionBufferC4<N> *d_solution_buffer;
 
-  cudaMalloc((void**)&d_stack, sizeof(DeviceStackC4<N>));
+  cudaMalloc((void**)&d_stack, sizeof(DeviceStackC4));
   cudaMalloc((void**)&d_solution_buffer, sizeof(SolutionBufferC4<N>));
 
-  cudaMemset(d_stack, 0, sizeof(DeviceStackC4<N>));
+  cudaMemset(d_stack, 0, sizeof(DeviceStackC4));
   cudaMemset(d_solution_buffer, 0, sizeof(SolutionBufferC4<N>));
 
   initialize_stack_kernel<N><<<1, 32>>>(d_stack);
@@ -196,7 +186,7 @@ int solve_with_device_stack_c4() {
     cudaMemcpy(&new_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
 
     cudaMemcpy(&d_stack->problems[batch_start], &d_stack->problems[start_size],
-               (new_size - start_size) * sizeof(DeviceProblemC4<N>), cudaMemcpyDeviceToDevice);
+               (new_size - start_size) * sizeof(ProblemC4), cudaMemcpyDeviceToDevice);
 
     start_size = new_size - batch_size;
     cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
