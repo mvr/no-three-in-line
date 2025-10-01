@@ -143,16 +143,22 @@ __global__ void work_kernel(DeviceStackC4<N> *stack,
 
   BitBoard<32> vulnerable = board.vulnerable();
   if(!vulnerable.empty()) {
-    auto vulnerable_choice = vulnerable.first_on();
+    auto vulnerable_choice = vulnerable.first_origin_on<N>();
     cell = {static_cast<unsigned>(vulnerable_choice.first),
             static_cast<unsigned>(vulnerable_choice.second)};
   } else {
-    auto preferred = unknown.first_near_radius_on<N>();
-    if (preferred.first != -1) {
-      cell = {static_cast<unsigned>(preferred.first), static_cast<unsigned>(preferred.second)};
+    BitBoard<32> unknown = ~(board.known_on | board.known_off) & board.bounds();
+
+    auto [row, _] = board.most_constrained_row();
+    board_row_t<32> row_unknown = unknown.row(row);
+
+    if (row_unknown != 0) {
+      unsigned col = find_first_set<32>(row_unknown);
+      cell = {col, row};
     } else {
-      auto fallback = unknown.first_on();
-      cell = {static_cast<unsigned>(fallback.first), static_cast<unsigned>(fallback.second)};
+      board_row_t<32> col_unknown = unknown.column(row);
+      unsigned col = find_first_set<32>(col_unknown);
+      cell = {row, col};
     }
   }
 

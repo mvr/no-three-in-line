@@ -58,6 +58,8 @@ struct ThreeBoardC4 {
   _DI_ void eliminate_all_lines(BitBoard<32> seed);
 
   _DI_ void propagate();
+
+  _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_row() const;
 };
 
 // --- Inline implementation -------------------------------------------------
@@ -512,4 +514,41 @@ _DI_ void ThreeBoardC4<N>::propagate() {
       processed = known_on;
     }
   } while (!(*this == prev_state));
+}
+
+template <unsigned N>
+_DI_ cuda::std::pair<unsigned, unsigned>
+ThreeBoardC4<N>::most_constrained_row() const {
+  unsigned row;
+
+  BitBoard<32> unknown = ~(known_on | known_off) & bounds();
+
+  BitBoard<32> known_on_rot = known_on.flip_diagonal();
+  BitBoard<32> unknown_rot = unknown.flip_diagonal();
+
+  unsigned ons = popcount<32>(known_on.state) + popcount<32>(known_on_rot.state);
+  unsigned unknowns = popcount<32>(unknown.state) + popcount<32>(unknown_rot.state);
+
+  if(ons == 1)
+    unknowns = unknowns * (unknowns + 1) / 2;
+
+  if ((threadIdx.x & 31) >= N || unknowns == 0)
+    unknowns = std::numeric_limits<unsigned>::max();
+
+  row = (threadIdx.x & 31);
+
+  for (int offset = 16; offset > 0; offset /= 2) {
+    unsigned other_row = __shfl_down_sync(0xffffffff, row, offset);
+    unsigned other_unknowns = __shfl_down_sync(0xffffffff, unknowns, offset);
+
+    if (other_unknowns < unknowns) {
+      row = other_row;
+      unknowns = other_unknowns;
+    }
+  }
+
+  row = __shfl_sync(0xffffffff, row, 0);
+  unknowns = __shfl_sync(0xffffffff, unknowns, 0);
+
+  return {row, unknowns};
 }
