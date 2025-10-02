@@ -133,6 +133,8 @@ struct BitBoard {
   template<unsigned N>
   _DI_ cuda::std::pair<int, int> first_center_on() const;
   template<unsigned N>
+  _DI_ cuda::std::pair<int, int> first_origin_on() const;
+  template<unsigned N>
   _DI_ cuda::std::pair<int, int> first_near_radius_on() const;
 
   _DI_ void print() const;
@@ -456,6 +458,130 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_center_on<N>() const {
     col = __shfl_sync(0xffffffff, col, 0);
 
     return {col + static_cast<int>(center), row + static_cast<int>(center)};
+  }
+}
+
+template <unsigned W>
+template <unsigned N>
+_DI_ cuda::std::pair<int, int> BitBoard<W>::first_origin_on() const {
+  if constexpr (W == 32) {
+    int row = threadIdx.x & 31;
+
+    int col = static_cast<int>(N);
+    unsigned dist2 = std::numeric_limits<unsigned>::max();
+
+    if (state != 0) {
+      col = find_first_set<W>(state);
+      dist2 = static_cast<unsigned>(row * row + col * col);
+    }
+
+    for (int offset = 16; offset > 0; offset /= 2) {
+      int other_row = __shfl_down_sync(0xffffffff, row, offset);
+      int other_col = __shfl_down_sync(0xffffffff, col, offset);
+      unsigned other_dist2 = __shfl_down_sync(0xffffffff, dist2, offset);
+
+      bool take_other = other_dist2 < dist2 ||
+                        (other_dist2 == dist2 &&
+                         (other_row < row || (other_row == row && other_col < col)));
+
+      if (take_other) {
+        row = other_row;
+        col = other_col;
+        dist2 = other_dist2;
+      }
+    }
+
+    row = __shfl_sync(0xffffffff, row, 0);
+    col = __shfl_sync(0xffffffff, col, 0);
+    dist2 = __shfl_sync(0xffffffff, dist2, 0);
+
+    if (dist2 == std::numeric_limits<unsigned>::max())
+      return {-1, -1};
+
+    return {col, row};
+  } else {
+    constexpr uint64_t column_mask = []() {
+      if constexpr (N == 0) {
+        return 0ULL;
+      } else if constexpr (N >= 64) {
+        return ~0ULL;
+      } else {
+        return (1ULL << N) - 1ULL;
+      }
+    }();
+
+    struct Candidate {
+      int row;
+      int col;
+      unsigned dist2;
+    };
+
+    auto make_candidate = [&](uint64_t bits, int row_index) {
+      Candidate cand{row_index, static_cast<int>(N), std::numeric_limits<unsigned>::max()};
+
+      if (row_index < static_cast<int>(N)) {
+        uint64_t masked = bits & column_mask;
+        if (masked) {
+          int col_index = find_first_set<W>(masked);
+          cand.col = col_index;
+          cand.dist2 = static_cast<unsigned>(row_index * row_index + col_index * col_index);
+        }
+      }
+
+      return cand;
+    };
+
+    int lane = threadIdx.x & 31;
+    unsigned y_base = lane << 1;
+
+    uint64_t even_row_bits = (static_cast<uint64_t>(state.y) << 32) | state.x;
+    uint64_t odd_row_bits = (static_cast<uint64_t>(state.w) << 32) | state.z;
+
+    Candidate even = make_candidate(even_row_bits, y_base);
+    Candidate odd = make_candidate(odd_row_bits, y_base + 1);
+
+    auto choose_better = [](const Candidate &a, const Candidate &b) {
+      if (b.dist2 < a.dist2)
+        return b;
+      if (b.dist2 == a.dist2) {
+        if (b.row < a.row)
+          return b;
+        if (b.row == a.row && b.col < a.col)
+          return b;
+      }
+      return a;
+    };
+
+    Candidate best = choose_better(even, odd);
+
+    int row = best.row;
+    int col = best.col;
+    unsigned dist2 = best.dist2;
+
+    for (int offset = 16; offset > 0; offset /= 2) {
+      int other_row = __shfl_down_sync(0xffffffff, row, offset);
+      int other_col = __shfl_down_sync(0xffffffff, col, offset);
+      unsigned other_dist2 = __shfl_down_sync(0xffffffff, dist2, offset);
+
+      bool take_other = other_dist2 < dist2 ||
+                        (other_dist2 == dist2 &&
+                         (other_row < row || (other_row == row && other_col < col)));
+
+      if (take_other) {
+        row = other_row;
+        col = other_col;
+        dist2 = other_dist2;
+      }
+    }
+
+    row = __shfl_sync(0xffffffff, row, 0);
+    col = __shfl_sync(0xffffffff, col, 0);
+    dist2 = __shfl_sync(0xffffffff, dist2, 0);
+
+    if (dist2 == std::numeric_limits<unsigned>::max())
+      return {-1, -1};
+
+    return {col, row};
   }
 }
 
