@@ -110,6 +110,8 @@ struct BitBoard {
   _DI_ bool empty() const;
   _DI_ int pop() const;
 
+  _DI_ BitBoard<W> move(int x, int y) const;
+  _DI_ BitBoard<W> move(cuda::std::pair<int, int> cell) const { return move(cell.first, cell.second); }
   _DI_ BitBoard<W> rotate_torus(int x, int y) const;
   _DI_ BitBoard<W> rotate_torus(cuda::std::pair<int, int> cell) const { return rotate_torus(cell.first, cell.second); }
   _DI_ BitBoard<W> zoi() const;
@@ -691,6 +693,37 @@ _DI_ int BitBoard<W>::pop() const {
     val = popcount<32>(state.x) + popcount<32>(state.y) + popcount<32>(state.z) + popcount<32>(state.w);
   }
   return __reduce_add_sync(0xffffffff, val);
+}
+
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::move(int rh, int rv) const {
+  if constexpr (W == 32) {
+    const int lane = threadIdx.x & 31;
+    const int src_lane = lane - rv;
+
+    uint32_t row = 0;
+    if (src_lane >= 0 && src_lane < 32)
+      row = __shfl_sync(0xffffffff, state, src_lane);
+
+    if (rh > 0) {
+      if (rh >= 32)
+        row = 0;
+      else
+        row <<= rh;
+    } else if (rh < 0) {
+      const unsigned shift = static_cast<unsigned>(-rh);
+      if (shift >= 32)
+        row = 0;
+      else
+        row >>= shift;
+    }
+
+    return BitBoard<W>(row);
+  } else {
+    static_assert(W == 32, "BitBoard::move only implemented for BitBoard<32>");
+    return BitBoard<W>();
+  }
 }
 
 
