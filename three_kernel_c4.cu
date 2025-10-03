@@ -139,7 +139,6 @@ __device__ void resolve_outcome_row(const ThreeBoardC4<N> board,
 template <unsigned N>
 __device__ void resolve_outcome_cell(const ThreeBoardC4<N> &board,
                                      cuda::std::pair<unsigned, unsigned> cell,
-                                     SolutionBufferC4<N> *solution_buffer,
                                      typename C4QueueTraits<N>::Queue queue) {
   using Traits = C4QueueTraits<N>;
   {
@@ -231,7 +230,7 @@ __global__ void work_kernel(typename C4QueueTraits<N>::Queue queue,
     }
   }
 
-  resolve_outcome_cell(board, cell, solution_buffer, queue);
+  resolve_outcome_cell(board, cell, queue);
 }
 
 template <unsigned N>
