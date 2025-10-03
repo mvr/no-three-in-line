@@ -23,3 +23,6 @@ add_subdirectory(test)
 
 add_executable(three main.cpp three_kernel.cu)
 add_executable(three_c4 main_c4.cpp three_kernel_c4.cu three_kernel.cu)
+
+target_include_directories(three PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+target_include_directories(three_c4 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
