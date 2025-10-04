@@ -394,7 +394,31 @@ inline cudaError_t zero_workspace_async(const Queue<Traits> &queue, cudaStream_t
   if (auto err = try_memset(queue.heap_nodes, heap_bytes<Traits>()); err != cudaSuccess) {
     return err;
   }
-  return try_memset(queue.counters, counter_bytes<Traits>());
+  if (auto err = try_memset(queue.counters, counter_bytes<Traits>()); err != cudaSuccess) {
+    return err;
+  }
+
+  if (queue.free_ids && Traits::problem_capacity > 0) {
+    std::vector<uint32_t> host_free(Traits::problem_capacity);
+    std::iota(host_free.begin(), host_free.end(), 0u);
+    const size_t bytes = host_free.size() * sizeof(uint32_t);
+    if (auto err = cudaMemcpyAsync(queue.free_ids, host_free.data(), bytes, cudaMemcpyHostToDevice, stream);
+        err != cudaSuccess) {
+      return err;
+    }
+  }
+
+  if (queue.counters) {
+    DeviceQueueCounters init{};
+    init.values[static_cast<unsigned>(Counter::FreeRead)] = 0ull;
+    init.values[static_cast<unsigned>(Counter::FreeWrite)] = Traits::problem_capacity;
+    if (auto err = cudaMemcpyAsync(queue.counters, &init, sizeof(init), cudaMemcpyHostToDevice, stream);
+        err != cudaSuccess) {
+      return err;
+    }
+  }
+
+  return cudaSuccess;
 }
 
 inline __host__ __device__ uint64_t counter_value(const DeviceQueueCounters &counters, Counter which) {
