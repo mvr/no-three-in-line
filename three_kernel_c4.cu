@@ -1,7 +1,6 @@
 #include <array>
-#include <vector>
-#include <iostream>
-#include <algorithm>
+#include <bit>
+#include <memory>
 
 #include "board.cu"
 #include "three_board_c4.cu"
@@ -29,32 +28,32 @@ struct SolutionBufferC4 {
 
 template <unsigned N>
 struct C4QueueTraits {
-  using Problem = DeviceProblemC4;
-  using ProblemSlot = ProblemC4;
+  using Element = DeviceProblemC4;
+  using Slot = ProblemC4;
   using Queue = queue::Queue<C4QueueTraits<N>>;
 
-  static constexpr uint32_t problem_capacity = STACK_CAPACITY;
-  static constexpr uint32_t staging_capacity = MAX_BATCH_SIZE * 2; // Branch factor
+  static constexpr uint32_t element_capacity = STACK_CAPACITY;
+  static constexpr uint32_t staging_capacity = MAX_BATCH_SIZE * 2;
   static constexpr uint32_t dispatch_capacity = MAX_BATCH_SIZE;
   static constexpr uint32_t free_capacity = STACK_CAPACITY;
   static constexpr uint32_t heap_log2_warps_per_block = 5;
 
-  __device__ static void store_problem(Queue queue,
+  __device__ static void store_element(Queue queue,
                                        uint32_t slot,
-                                       const Problem &problem) {
-    problem.known_on.save(queue.problem_pool[slot].known_on.data());
-    problem.known_off.save(queue.problem_pool[slot].known_off.data());
+                                       const Element &element) {
+    element.known_on.save(queue.elements[slot].known_on.data());
+    element.known_off.save(queue.elements[slot].known_off.data());
   }
 
-  __device__ static Problem load_problem(Queue queue, uint32_t slot) {
-    Problem result{};
-    result.known_on = BitBoard<32>::load(queue.problem_pool[slot].known_on.data());
-    result.known_off = BitBoard<32>::load(queue.problem_pool[slot].known_off.data());
+  __device__ static Element load_element(Queue queue, uint32_t slot) {
+    Element result{};
+    result.known_on = BitBoard<32>::load(queue.elements[slot].known_on.data());
+    result.known_off = BitBoard<32>::load(queue.elements[slot].known_off.data());
     return result;
   }
 
-  __device__ static uint32_t compute_priority(const Problem &problem) {
-    ThreeBoardC4<N> snapshot(problem.known_on, problem.known_off);
+  __device__ static uint32_t compute_priority(const Element &element) {
+    ThreeBoardC4<N> snapshot(element.known_on, element.known_off);
     return snapshot.priority();
   }
 };
@@ -126,8 +125,8 @@ __device__ void resolve_outcome_row(const ThreeBoardC4<N> board,
     sub_board.propagate();
 
     if (sub_board.consistent()) {
-      DeviceProblemC4 problem = {sub_board.known_on, sub_board.known_off};
-      queue::enqueue_problem<Traits>(queue, problem);
+      DeviceProblemC4 element = {sub_board.known_on, sub_board.known_off};
+      queue::enqueue<Traits>(queue, element);
     }
 
     tried_board.known_off.set(cell);
@@ -148,8 +147,8 @@ __device__ void resolve_outcome_cell(const ThreeBoardC4<N> &board,
     sub_board.known_on |= seed;
     sub_board.propagate(seed);
     if (sub_board.consistent()) {
-      DeviceProblemC4 problem = {sub_board.known_on, sub_board.known_off};
-      queue::enqueue_problem<Traits>(queue, problem);
+      DeviceProblemC4 element = {sub_board.known_on, sub_board.known_off};
+      queue::enqueue<Traits>(queue, element);
     }
   }
   {
@@ -157,8 +156,8 @@ __device__ void resolve_outcome_cell(const ThreeBoardC4<N> &board,
     sub_board.known_off.set(static_cast<int>(cell.first), static_cast<int>(cell.second));
     sub_board.propagate();
     if (sub_board.consistent()) {
-      DeviceProblemC4 problem = {sub_board.known_on, sub_board.known_off};
-      queue::enqueue_problem<Traits>(queue, problem);
+      DeviceProblemC4 element = {sub_board.known_on, sub_board.known_off};
+      queue::enqueue<Traits>(queue, element);
     }
   }
 }
@@ -180,33 +179,40 @@ __global__ void work_kernel(typename C4QueueTraits<N>::Queue queue,
 
   const uint32_t dispatch_index = dispatch_base + warp_idx;
 
-  uint32_t problem_id = queue::kInvalidIndex;
+  uint32_t element_id = queue::kInvalidIndex;
   if (lane == 0) {
-    problem_id = queue::load_dispatch_entry<Traits>(queue, dispatch_index);
+    element_id = queue::load_dispatch_entry<Traits>(queue, dispatch_index);
   }
-  problem_id = __shfl_sync(mask, problem_id, 0);
+  element_id = __shfl_sync(mask, element_id, 0);
 
-  if (problem_id == queue::kInvalidIndex) {
+  if (element_id == queue::kInvalidIndex) {
     return;
   }
 
-  auto problem = Traits::load_problem(queue, problem_id);
+  auto element = Traits::load_element(queue, element_id);
   ThreeBoardC4<N> board;
-  board.known_on = problem.known_on;
-  board.known_off = problem.known_off;
+  board.known_on = element.known_on;
+  board.known_off = element.known_off;
 
-  queue::problem_complete<Traits>(queue, problem_id);
+  bool released = false;
+  auto release_element = [&]() {
+    if (!released) {
+      queue::complete<Traits>(queue, element_id);
+      released = true;
+    }
+  };
 
   board.propagate();
-  if (!board.consistent())
+  if (!board.consistent()) {
+    release_element();
     return;
+  }
 
-  BitBoard<32> bounds = ThreeBoardC4<N>::bounds();
-  BitBoard<32> unknown = ~(board.known_on | board.known_off);
-  unknown &= bounds;
+  BitBoard<32> unknown = ~(board.known_on | board.known_off) & ThreeBoardC4<N>::bounds();
 
   if (unknown.empty()) {
     solution_buffer_push(solution_buffer, board);
+    release_element();
     return;
   }
 
@@ -231,6 +237,7 @@ __global__ void work_kernel(typename C4QueueTraits<N>::Queue queue,
   }
 
   resolve_outcome_cell(board, cell, queue);
+  release_element();
 }
 
 template <unsigned N>
@@ -244,31 +251,37 @@ int solve_with_device_stack_c4() {
   [[maybe_unused]] auto queue_cleanup = queue::make_workspace_owner<Traits>(queue);
   queue::DeviceQueueCounters host_counters{};
 
-  if (auto err = queue::allocate_workspace<Traits>(queue); err != cudaSuccess) {
+  if (queue::allocate_workspace<Traits>(queue) != cudaSuccess) {
+    return -1;
+  }
+  if (queue::zero_workspace_async(queue) != cudaSuccess) {
+    return -1;
+  }
+  if (cudaDeviceSynchronize() != cudaSuccess) {
     return -1;
   }
 
-  if (auto err = queue::zero_workspace_async(queue); err != cudaSuccess) {
+  auto solution_deleter = [](SolutionBufferC4<N> *ptr) {
+    if (ptr) cudaFree(ptr);
+  };
+  std::unique_ptr<SolutionBufferC4<N>, decltype(solution_deleter)> d_solution_buffer(nullptr, solution_deleter);
+  SolutionBufferC4<N> *raw_solution = nullptr;
+  if (cudaMalloc(reinterpret_cast<void **>(&raw_solution), sizeof(SolutionBufferC4<N>)) != cudaSuccess) {
     return -1;
   }
-  if (auto err = cudaDeviceSynchronize(); err != cudaSuccess) {
+  d_solution_buffer.reset(raw_solution);
+  if (cudaMemset(d_solution_buffer.get(), 0, sizeof(SolutionBufferC4<N>)) != cudaSuccess) {
     return -1;
   }
-
-  SolutionBufferC4<N> *d_solution_buffer;
-  cudaMalloc((void**)&d_solution_buffer, sizeof(SolutionBufferC4<N>));
-  cudaMemset(d_solution_buffer, 0, sizeof(SolutionBufferC4<N>));
 
   seed_queue_kernel<N><<<1, 32>>>(queue);
-  if (auto err = cudaDeviceSynchronize(); err != cudaSuccess) {
-    cudaFree(d_solution_buffer);
+  if (cudaDeviceSynchronize() != cudaSuccess) {
     return -1;
   }
 
   while (true) {
     queue::maintenance_kernel<Traits><<<1, 32u << Traits::heap_log2_warps_per_block>>>(queue, MAX_BATCH_SIZE);
-    if (auto err = cudaDeviceSynchronize(); err != cudaSuccess) {
-      cudaFree(d_solution_buffer);
+    if (cudaDeviceSynchronize() != cudaSuccess) {
       return -1;
     }
 
@@ -297,9 +310,8 @@ int solve_with_device_stack_c4() {
       blocks = 1;
     }
 
-    work_kernel<N><<<blocks, WARPS_PER_BLOCK * 32>>>(queue, d_solution_buffer, dispatch_start, batch_size);
-    if (auto err = cudaDeviceSynchronize(); err != cudaSuccess) {
-      cudaFree(d_solution_buffer);
+    work_kernel<N><<<blocks, WARPS_PER_BLOCK * 32>>>(queue, d_solution_buffer.get(), dispatch_start, batch_size);
+    if (cudaDeviceSynchronize() != cudaSuccess) {
       return -1;
     }
 
@@ -307,7 +319,7 @@ int solve_with_device_stack_c4() {
     cudaMemcpy(&queue.counters->values[static_cast<unsigned>(queue::Counter::DispatchRead)],
                &new_dispatch_read, sizeof(uint64_t), cudaMemcpyHostToDevice);
 
-    unsigned solution_count;
+    unsigned solution_count = 0;
     cudaMemcpy(&solution_count, &d_solution_buffer->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
 
     if (solution_count > 0) {
@@ -321,8 +333,6 @@ int solve_with_device_stack_c4() {
       cudaMemset(&d_solution_buffer->size, 0, sizeof(unsigned));
     }
   }
-
-  cudaFree(d_solution_buffer);
 
   return 0;
 }

@@ -2,6 +2,10 @@
 
 #include <cuda_runtime.h>
 #include <cstdint>
+#include <limits>
+#include <numeric>
+#include <vector>
+#include <assert.h>
 
 #include <cpads/sorting/bitonic.hpp>
 
@@ -126,8 +130,8 @@ enum class Counter : uint32_t {
   FreeWrite,
   DispatchRead,
   DispatchWrite,
-  ProblemReserve,
-  ActiveProblems,
+  Reserve,
+  Active,
   Count
 };
 
@@ -154,7 +158,7 @@ constexpr uint32_t heap_node_stride() {
 
 template <typename Traits>
 constexpr uint32_t heap_max_nodes() {
-  return Traits::problem_capacity / heap_vector_width<Traits>();
+  return Traits::element_capacity / heap_vector_width<Traits>();
 }
 
 template <typename Traits>
@@ -166,20 +170,22 @@ constexpr uint32_t entries_per_lane() {
 
 template <typename Traits>
 struct Queue {
-  using ProblemSlot = typename Traits::ProblemSlot;
+  using Slot = typename Traits::Slot;
 
-  static_assert(Traits::problem_capacity > 0, "problem_capacity must be positive");
+  static_assert(Traits::element_capacity > 0, "element_capacity must be positive");
   static_assert((Traits::staging_capacity & (Traits::staging_capacity - 1u)) == 0,
                 "staging ring must be power of two");
   static_assert((Traits::dispatch_capacity & (Traits::dispatch_capacity - 1u)) == 0,
                 "dispatch ring must be power of two");
   static_assert((Traits::free_capacity & (Traits::free_capacity - 1u)) == 0,
                 "free list ring must be power of two");
+  static_assert(Traits::free_capacity >= Traits::element_capacity,
+                "free list ring must be at least as large as the element pool");
   static_assert(detail::heap_max_nodes<Traits>() >= 2, "heap needs space for root and child");
-  static_assert(Traits::problem_capacity % detail::heap_vector_width<Traits>() == 0,
-                "heap vectors must tile the problem pool");
+  static_assert(Traits::element_capacity % detail::heap_vector_width<Traits>() == 0,
+                "heap vectors must tile the element pool");
 
-  ProblemSlot *problem_pool = nullptr;
+  Slot *elements = nullptr;
   uint64_t *staging_entries = nullptr;
   uint32_t *dispatch_ids = nullptr;
   uint32_t *free_ids = nullptr;
@@ -223,8 +229,8 @@ constexpr uint32_t heap_max_nodes() {
 }
 
 template <typename Traits>
-constexpr size_t problem_pool_bytes() {
-  return static_cast<size_t>(Traits::problem_capacity) * sizeof(typename Traits::ProblemSlot);
+constexpr size_t elements_bytes() {
+  return static_cast<size_t>(Traits::element_capacity) * sizeof(typename Traits::Slot);
 }
 
 template <typename Traits>
@@ -267,7 +273,7 @@ inline cudaError_t allocate_workspace(Queue<Traits> &workspace) {
     return err;
   };
 
-  if (auto err = allocate(workspace.problem_pool, problem_pool_bytes<Traits>()); err != cudaSuccess) {
+  if (auto err = allocate(workspace.elements, elements_bytes<Traits>()); err != cudaSuccess) {
     free_workspace(workspace);
     return err;
   }
@@ -291,7 +297,6 @@ inline cudaError_t allocate_workspace(Queue<Traits> &workspace) {
     free_workspace(workspace);
     return err;
   }
-
   return cudaSuccess;
 }
 
@@ -304,7 +309,7 @@ inline void free_workspace(Queue<Traits> &workspace) {
     }
   };
 
-  release(workspace.problem_pool);
+  release(workspace.elements);
   release(workspace.staging_entries);
   release(workspace.dispatch_ids);
   release(workspace.free_ids);
@@ -358,15 +363,15 @@ WorkspaceOwner<Traits> make_workspace_owner(Queue<Traits> &workspace) {
   return WorkspaceOwner<Traits>(workspace);
 }
 
-inline __host__ __device__ uint64_t pack_problem_key(uint32_t priority, uint32_t index) {
+inline __host__ __device__ uint64_t pack_key(uint32_t priority, uint32_t index) {
   return (uint64_t(priority) << 32) | uint64_t(index);
 }
 
-inline __host__ __device__ uint32_t unpack_problem_index(uint64_t key) {
+inline __host__ __device__ uint32_t unpack_index(uint64_t key) {
   return static_cast<uint32_t>(key);
 }
 
-inline __host__ __device__ uint32_t unpack_problem_priority(uint64_t key) {
+inline __host__ __device__ uint32_t unpack_priority(uint64_t key) {
   return static_cast<uint32_t>(key >> 32);
 }
 
@@ -379,7 +384,7 @@ inline cudaError_t zero_workspace_async(const Queue<Traits> &queue, cudaStream_t
     return cudaMemsetAsync(ptr, 0, bytes, stream);
   };
 
-  if (auto err = try_memset(queue.problem_pool, problem_pool_bytes<Traits>()); err != cudaSuccess) {
+  if (auto err = try_memset(queue.elements, elements_bytes<Traits>()); err != cudaSuccess) {
     return err;
   }
   if (auto err = try_memset(queue.staging_entries, staging_ring_bytes<Traits>()); err != cudaSuccess) {
@@ -398,8 +403,8 @@ inline cudaError_t zero_workspace_async(const Queue<Traits> &queue, cudaStream_t
     return err;
   }
 
-  if (queue.free_ids && Traits::problem_capacity > 0) {
-    std::vector<uint32_t> host_free(Traits::problem_capacity);
+  if (queue.free_ids && Traits::element_capacity > 0) {
+    std::vector<uint32_t> host_free(Traits::element_capacity);
     std::iota(host_free.begin(), host_free.end(), 0u);
     const size_t bytes = host_free.size() * sizeof(uint32_t);
     if (auto err = cudaMemcpyAsync(queue.free_ids, host_free.data(), bytes, cudaMemcpyHostToDevice, stream);
@@ -411,7 +416,7 @@ inline cudaError_t zero_workspace_async(const Queue<Traits> &queue, cudaStream_t
   if (queue.counters) {
     DeviceQueueCounters init{};
     init.values[static_cast<unsigned>(Counter::FreeRead)] = 0ull;
-    init.values[static_cast<unsigned>(Counter::FreeWrite)] = Traits::problem_capacity;
+    init.values[static_cast<unsigned>(Counter::FreeWrite)] = Traits::element_capacity;
     if (auto err = cudaMemcpyAsync(queue.counters, &init, sizeof(init), cudaMemcpyHostToDevice, stream);
         err != cudaSuccess) {
       return err;
@@ -432,7 +437,7 @@ inline __host__ __device__ uint64_t counter_diff(const DeviceQueueCounters &coun
 }
 
 inline __host__ __device__ bool queue_has_work(const DeviceQueueCounters &counters) {
-  const uint64_t active = counter_value(counters, Counter::ActiveProblems);
+  const uint64_t active = counter_value(counters, Counter::Active);
   const uint64_t staging = counter_diff(counters, Counter::StagingWrite, Counter::StagingRead);
   const uint64_t heap = counter_value(counters, Counter::HeapNodes);
   return active != 0 || staging != 0 || heap != 0;
@@ -452,7 +457,7 @@ __device__ inline const unsigned long long *counter_ptr_const(const Queue<Traits
 }
 
 template <typename Traits>
-__device__ uint32_t reserve_problem_index(Queue<Traits> queue) {
+__device__ uint32_t reserve_index(Queue<Traits> queue) {
   constexpr uint32_t invalid = kInvalidIndex;
   if (!queue.counters) {
     return invalid;
@@ -460,11 +465,11 @@ __device__ uint32_t reserve_problem_index(Queue<Traits> queue) {
 
   auto *free_read_ptr = counter_ptr(queue, Counter::FreeRead);
   const auto *free_write_ptr = counter_ptr_const(queue, Counter::FreeWrite);
-  auto *reserve_counter = counter_ptr(queue, Counter::ProblemReserve);
+  auto *reserve_counter = counter_ptr(queue, Counter::Reserve);
 
-  const uint32_t capacity = Traits::problem_capacity;
+  const uint32_t capacity = Traits::element_capacity;
 
-  unsigned lane = threadIdx.x & 31u;
+  const unsigned lane = threadIdx.x & 31u;
   uint32_t reservation = invalid;
 
   if (lane == 0) {
@@ -493,56 +498,51 @@ __device__ uint32_t reserve_problem_index(Queue<Traits> queue) {
 }
 
 template <typename Traits>
-__device__ void stage_problem(Queue<Traits> queue,
-                              const typename Traits::Problem &problem) {
-  constexpr uint32_t invalid = kInvalidIndex;
-
-  if (!queue.problem_pool || !queue.counters || !queue.staging_entries) {
-    return;
+__device__ bool enqueue(Queue<Traits> queue,
+                               const typename Traits::Element &element) {
+  if (!queue.elements || !queue.counters || !queue.staging_entries) {
+    return true;
   }
-
-  const uint32_t slot = reserve_problem_index<Traits>(queue);
-  if (slot == invalid) {
-    return;
-  }
-
-  Traits::store_problem(queue, slot, problem);
-  const uint32_t priority = Traits::compute_priority(problem);
 
   const unsigned lane = threadIdx.x & 31u;
+
+  const uint32_t slot = reserve_index<Traits>(queue);
+  if (slot == kInvalidIndex) {
+    return false;
+  }
+
+  Traits::store_element(queue, slot, element);
+  const uint32_t priority = Traits::compute_priority(element);
+
   if (lane == 0) {
     auto *staging_write = counter_ptr(queue, Counter::StagingWrite);
     const uint64_t write_index = atomicAdd(staging_write, 1ull);
     const uint32_t pos = static_cast<uint32_t>(write_index) & staging_mask<Traits>();
-    queue.staging_entries[pos] = pack_problem_key(priority, slot);
+    queue.staging_entries[pos] = pack_key(priority, slot);
 
-    auto *active_counter = counter_ptr(queue, Counter::ActiveProblems);
+    auto *active_counter = counter_ptr(queue, Counter::Active);
     atomicAdd(active_counter, 1ull);
   }
+
+  return true;
 }
 
 template <typename Traits>
-__device__ void enqueue_problem(Queue<Traits> queue,
-                                const typename Traits::Problem &problem) {
-  stage_problem<Traits>(queue, problem);
-}
-
-template <typename Traits>
-__device__ void problem_complete(Queue<Traits> queue, uint32_t problem_id) {
+__device__ void complete(Queue<Traits> queue, uint32_t id) {
   if (!queue.counters) {
     return;
   }
 
   const unsigned lane = threadIdx.x & 31u;
   if (lane == 0) {
-    auto *active_counter = counter_ptr(queue, Counter::ActiveProblems);
+    auto *active_counter = counter_ptr(queue, Counter::Active);
     atomicAdd(active_counter, 0xffffffffffffffffull);
 
     if (queue.free_ids) {
       auto *free_write = counter_ptr(queue, Counter::FreeWrite);
       const uint64_t write_index = atomicAdd(free_write, 1ull);
       const uint32_t pos = static_cast<uint32_t>(write_index) & free_list_mask<Traits>();
-      queue.free_ids[pos] = problem_id;
+      queue.free_ids[pos] = id;
     }
   }
 }
@@ -557,8 +557,10 @@ __device__ void load_staging_vector(const Queue<Traits> &queue,
                                     heap_detail::HeapVector &out) {
   const uint32_t mask = staging_mask<Traits>();
   const uint64_t lane_base = lane_entry_base();
-  out[0] = queue.staging_entries[(start_index + lane_base + 0) & mask];
-  out[1] = queue.staging_entries[(start_index + lane_base + 1) & mask];
+  const uint64_t idx0 = (start_index + lane_base + 0) & mask;
+  const uint64_t idx1 = (start_index + lane_base + 1) & mask;
+  out[0] = queue.staging_entries[idx0];
+  out[1] = queue.staging_entries[idx1];
 }
 
 template <typename Traits>
@@ -567,8 +569,8 @@ __device__ void store_dispatch_vector(const Queue<Traits> &queue,
                                       const heap_detail::HeapVector &values) {
   const uint32_t mask = dispatch_mask<Traits>();
   const uint64_t lane_base = lane_entry_base();
-  queue.dispatch_ids[(start_index + lane_base + 0) & mask] = unpack_problem_index(values[0]);
-  queue.dispatch_ids[(start_index + lane_base + 1) & mask] = unpack_problem_index(values[1]);
+  queue.dispatch_ids[(start_index + lane_base + 0) & mask] = unpack_index(values[0]);
+  queue.dispatch_ids[(start_index + lane_base + 1) & mask] = unpack_index(values[1]);
 }
 
 template <typename Traits>
@@ -578,15 +580,15 @@ __device__ uint32_t load_dispatch_entry(const Queue<Traits> &queue, uint64_t ind
 }
 
 template <typename Traits>
-__device__ uint32_t staging_problem_id(const Queue<Traits> &queue, uint64_t index) {
-  return unpack_problem_index(queue.staging_entries[index & staging_mask<Traits>()]);
+__device__ uint32_t staging_index(const Queue<Traits> &queue, uint64_t index) {
+  return unpack_index(queue.staging_entries[index & staging_mask<Traits>()]);
 }
 
 template <typename Traits>
 __device__ void store_dispatch_entry(const Queue<Traits> &queue,
                                      uint64_t index,
-                                     uint32_t problem_id) {
-  queue.dispatch_ids[index & dispatch_mask<Traits>()] = problem_id;
+                                     uint32_t element_id) {
+  queue.dispatch_ids[index & dispatch_mask<Traits>()] = element_id;
 }
 
 template <typename Traits>
@@ -610,34 +612,65 @@ __global__ void maintenance_kernel(Queue<Traits> queue,
   const uint64_t dispatch_read = queue.counters->values[static_cast<unsigned>(Counter::DispatchRead)];
   uint64_t dispatch_write = queue.counters->values[static_cast<unsigned>(Counter::DispatchWrite)];
 
+  constexpr uint64_t kVectorWidth = heap_vector_width<Traits>();
+#ifndef NDEBUG
+  const uint64_t initial_staging_read = staging_read;
+  const uint64_t initial_heap_nodes = heap_nodes;
+#endif
+
+#ifndef NDEBUG
+  if (threadIdx.x == 0) {
+    assert(staging_write >= staging_read);
+    assert(dispatch_write >= dispatch_read);
+    if (dispatch_write >= dispatch_read) {
+      const uint64_t dispatch_span = dispatch_write - dispatch_read;
+      assert(dispatch_span <= Traits::dispatch_capacity);
+    }
+    assert(heap_nodes <= heap_capacity);
+  }
+#endif
+  __syncthreads();
+
   uint64_t staging_available = staging_write - staging_read;
-  uint64_t vectors_available = staging_available / heap_vector_width<Traits>();
+  uint64_t vectors_available = staging_available / kVectorWidth;
   uint64_t vector_slots = (heap_nodes < heap_capacity) ? (heap_capacity - heap_nodes) : 0ull;
   uint64_t vectors_to_insert = vectors_available < vector_slots ? vectors_available : vector_slots;
+
+#ifndef NDEBUG
+  if (threadIdx.x == 0) {
+    assert(vectors_to_insert * kVectorWidth <= staging_available);
+    assert(heap_nodes + vectors_to_insert <= heap_capacity);
+  }
+#endif
 
   uint64_t read_ptr = staging_read;
   for (uint64_t vec = 0; vec < vectors_to_insert; ++vec) {
     heap_detail::HeapVector values;
     load_staging_vector(queue, read_ptr, values);
-
     heap_detail::heap_parallel_insert<Traits::heap_log2_warps_per_block>(values,
                                                                          static_cast<int>(heap_nodes + 1),
                                                                          queue.heap_nodes,
                                                                          scratch);
 
     heap_nodes += 1;
-    read_ptr += heap_vector_width<Traits>();
+    read_ptr += kVectorWidth;
   }
   staging_read = read_ptr;
 
   uint64_t dispatch_capacity_entries = Traits::dispatch_capacity - (dispatch_write - dispatch_read);
   uint64_t quota_entries = dispatch_quota;
-  uint64_t vectors_quota = quota_entries / heap_vector_width<Traits>();
-  uint64_t capacity_vectors = dispatch_capacity_entries / heap_vector_width<Traits>();
+  uint64_t vectors_quota = quota_entries / kVectorWidth;
+  uint64_t capacity_vectors = dispatch_capacity_entries / kVectorWidth;
 
   uint64_t vectors_to_remove = heap_nodes;
   if (vectors_to_remove > vectors_quota) vectors_to_remove = vectors_quota;
   if (vectors_to_remove > capacity_vectors) vectors_to_remove = capacity_vectors;
+
+#ifndef NDEBUG
+  if (threadIdx.x == 0) {
+    assert(vectors_to_remove <= initial_heap_nodes + vectors_to_insert);
+  }
+#endif
 
   uint64_t write_ptr = dispatch_write;
   for (uint64_t vec = 0; vec < vectors_to_remove; ++vec) {
@@ -648,10 +681,10 @@ __global__ void maintenance_kernel(Queue<Traits> queue,
                                                                         queue.heap_nodes,
                                                                         scratch);
     heap_nodes -= 1;
-    write_ptr += heap_vector_width<Traits>();
+    write_ptr += kVectorWidth;
   }
 
-  uint64_t entries_from_heap = vectors_to_remove * heap_vector_width<Traits>();
+  uint64_t entries_from_heap = vectors_to_remove * kVectorWidth;
   uint64_t quota_remaining = (quota_entries > entries_from_heap) ? (quota_entries - entries_from_heap) : 0ull;
   if (dispatch_capacity_entries > entries_from_heap) {
     dispatch_capacity_entries -= entries_from_heap;
@@ -670,12 +703,26 @@ __global__ void maintenance_kernel(Queue<Traits> queue,
     const uint64_t src_base = staging_read;
     const uint64_t dst_base = write_ptr;
     for (uint64_t offset = threadIdx.x; offset < direct_count; offset += blockDim.x) {
-      const uint32_t idx = staging_problem_id(queue, src_base + offset);
+      const uint32_t idx = staging_index(queue, src_base + offset);
       store_dispatch_entry(queue, dst_base + offset, idx);
     }
     staging_read += direct_count;
     write_ptr += direct_count;
   }
+
+#ifndef NDEBUG
+  if (threadIdx.x == 0) {
+    const uint64_t staging_consumed = staging_read - initial_staging_read;
+    const uint64_t expected_consumed = (vectors_to_insert * kVectorWidth) + direct_count;
+    assert(staging_consumed == expected_consumed);
+    assert(heap_nodes == initial_heap_nodes + vectors_to_insert - vectors_to_remove);
+    assert(staging_read <= staging_write);
+    assert(heap_nodes <= heap_capacity);
+    assert(write_ptr >= dispatch_read);
+    const uint64_t final_dispatch_span = write_ptr - dispatch_read;
+    assert(final_dispatch_span <= Traits::dispatch_capacity);
+  }
+#endif
 
   __syncthreads();
 
