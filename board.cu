@@ -103,6 +103,7 @@ struct BitBoard {
 
   _DI_ cuda::std::pair<int, int> first_on() const;
   _DI_ cuda::std::pair<int, int> some_on() const;
+  _DI_ void on_cells(cuda::std::pair<uint8_t, uint8_t> cells[]) const;
 
   _DI_ static BitBoard<W> positions_before(int x, int y);
   _DI_ static BitBoard<W> positions_before(cuda::std::pair<int, int> cell) { return positions_before(cell.first, cell.second); }
@@ -340,6 +341,55 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::some_on() const {
     y = __shfl_sync(0xffffffff, y, lane);
 
     return {x, y};
+  }
+}
+
+template<unsigned W>
+_DI_ void BitBoard<W>::on_cells(cuda::std::pair<uint8_t, uint8_t> cells[]) const {
+  auto emit_row = [&](board_row_t<W> bits, unsigned y, unsigned &offset) {
+    while (bits) {
+      unsigned x = count_trailing_zeros<W>(bits);
+      bits &= bits - 1;
+      cells[offset] = {x, y};
+      offset++;
+    }
+  };
+
+  if constexpr (W == 32) {
+    unsigned lane = threadIdx.x & 31;
+    board_row_t<W> row_bits = state;
+    unsigned row_count = popcount<W>(row_bits);
+
+    unsigned prefix = row_count;
+    for (unsigned offset = 1; offset < 32; offset <<= 1) {
+      unsigned other = __shfl_up_sync(0xffffffff, prefix, offset);
+      if (lane >= offset) {
+        prefix += other;
+      }
+    }
+
+    unsigned start = prefix - row_count;
+    emit_row(row_bits, lane, start);
+  } else {
+    unsigned lane = threadIdx.x & 31;
+    board_row_t<W> even_bits = state.x | (static_cast<uint64_t>(state.y) << 32);
+    board_row_t<W> odd_bits = state.z | (static_cast<uint64_t>(state.w) << 32);
+
+    unsigned even_count = popcount<W>(even_bits);
+    unsigned odd_count = popcount<W>(odd_bits);
+    unsigned lane_total = even_count + odd_count;
+
+    unsigned prefix = lane_total;
+    for (unsigned offset = 1; offset < 32; offset <<= 1) {
+      unsigned other = __shfl_up_sync(0xffffffff, prefix, offset);
+      if (lane >= offset) {
+        prefix += other;
+      }
+    }
+
+    unsigned start = prefix - lane_total;
+    emit_row(even_bits, lane * 2, start);
+    emit_row(odd_bits, lane * 2 + 1, start);
   }
 }
 
