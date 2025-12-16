@@ -152,7 +152,7 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
     return;
   }
 
-  if (board.unknown_pop() == 0) {
+  if (board.complete()) {
     solution_buffer_push(solution_buffer, board.known_on);
     return;
   }

@@ -19,6 +19,7 @@ struct ThreeBoard {
   static _DI_ BitBoard<W> relevant_endpoint(cuda::std::pair<unsigned, unsigned> p);
 
   _DI_ bool consistent() const;
+  _DI_ bool complete() const;
   _DI_ unsigned unknown_pop() const;
   _DI_ LexStatus is_canonical_orientation() const;
 
@@ -130,6 +131,11 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::relevant_endpoint(cuda::std::pair<unsigned, u
 template <unsigned N, unsigned W>
 _DI_ bool ThreeBoard<N, W>::consistent() const {
   return (known_on & known_off).empty();
+}
+
+template <unsigned N, unsigned W>
+_DI_ bool ThreeBoard<N, W>::complete() const {
+  return (bounds() & ~known_on & ~known_off).empty();
 }
 
 template <unsigned N, unsigned W>
