@@ -755,9 +755,9 @@ _DI_ BitBoard<W> BitBoard<W>::move(int rh, int rv) const {
     const int lane = threadIdx.x & 31;
     const int src_lane = lane - rv;
 
-    uint32_t row = 0;
-    if (src_lane >= 0 && src_lane < 32)
-      row = __shfl_sync(0xffffffff, state, src_lane);
+    uint32_t row = __shfl_sync(0xffffffff, state, src_lane);
+    if (src_lane < 0 || src_lane >= 32)
+      row = 0;
 
     if (rh > 0) {
       if (rh >= 32)
