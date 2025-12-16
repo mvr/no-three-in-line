@@ -132,6 +132,9 @@ struct BitBoard {
   _DI_ bool is_canonical_subsquare() const;
 
   _DI_ BitBoard<W> mirror_around(cuda::std::pair<int, int> cell) const;
+  // Pull each set (x, y) down to (x/gcd(x,y), y/gcd(x,y))
+  _DI_ BitBoard<W> gcd_reduce() const;
+
 
   template<unsigned N>
   _DI_ cuda::std::pair<int, int> first_center_on() const;
@@ -1165,6 +1168,37 @@ _DI_ BitBoard<W> BitBoard<W>::mirror_around(cuda::std::pair<int, int> cell) cons
 
     return BitBoard<W>(result_state);
   }
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::gcd_reduce() const {
+  constexpr int MAX_POINTS = 64;
+  static __shared__ cuda::std::pair<uint8_t, uint8_t> shared_cells[WARPS_PER_BLOCK][MAX_POINTS];
+
+  const unsigned warp = threadIdx.x >> 5;
+  const unsigned lane = threadIdx.x & 31;
+  auto *cell_buffer = shared_cells[warp];
+
+  this->on_cells(cell_buffer);
+  int total = pop();
+
+  for (int idx = lane; idx < total; idx += 32) {
+    auto [x, y] = cell_buffer[idx];
+
+    const unsigned x_div = div_gcd_table[x][y];
+    const unsigned y_div = div_gcd_table[y][x];
+
+    cell_buffer[idx] = {x_div, y_div};
+  }
+
+  __syncwarp();
+
+  BitBoard<W> reduced;
+  for (int idx = 0; idx < total; ++idx) {
+    reduced.set(cell_buffer[idx]);
+  }
+
+  return reduced;
 }
 
 template<unsigned W>

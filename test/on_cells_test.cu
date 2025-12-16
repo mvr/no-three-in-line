@@ -4,24 +4,12 @@
 #include "gtest/gtest.h"
 
 #include "board.cu"
+#include "board_test_helpers.cuh"
 
 template <unsigned W>
 __global__ void on_cells_kernel(board_row_t<W> *board_rows, cuda::std::pair<uint8_t, uint8_t> *cells) {
   BitBoard<W> board = BitBoard<W>::load(board_rows);
   board.on_cells(cells);
-}
-
-template <unsigned W>
-board_array_t<W> board_from_cells(const std::vector<cuda::std::pair<int, int>> &cells) {
-  board_array_t<W> board{};
-  for (auto [x, y] : cells) {
-    if constexpr (W == 32) {
-      board[y] |= (1u << x);
-    } else {
-      board[y] |= (1ULL << x);
-    }
-  }
-  return board;
 }
 
 template <unsigned W>
