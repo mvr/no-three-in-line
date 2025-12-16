@@ -158,7 +158,7 @@ _DI_ LexStatus compare_with_unknowns(const BitBoard<W> a_on, const BitBoard<W> a
 
   if (diff.empty()) {
     // Check if any unknowns exist that could change the comparison
-    BitBoard<W> critical_unknowns = a_unknown | b_unknown;
+    BitBoard<W> critical_unknowns = (a_unknown | b_unknown) & ThreeBoard<N, W>::bounds();
     return critical_unknowns.empty() ? LexStatus::Equal : LexStatus::Unknown;
   }
 
