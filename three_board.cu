@@ -1,8 +1,11 @@
 #pragma once
 
 #include "common.hpp"
+#include "params.hpp"
 
 #include "board.cu"
+
+__device__ uint32_t *g_line_table_32 = nullptr;
 
 template <unsigned N, unsigned W>
 struct ThreeBoard {
@@ -529,22 +532,32 @@ template <unsigned N, unsigned W>
 _DI_ BitBoard<W>
 ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
                                  cuda::std::pair<unsigned, unsigned> q) {
-  if (p.second > q.second)
-    cuda::std::swap(p, q);
+  if constexpr (W == 32) {
+    constexpr unsigned cell_count = N * N;
+    unsigned p_idx = p.second * N + p.first;
+    unsigned q_idx = q.second * N + q.first;
+    const uint32_t *entry = g_line_table_32 + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_TABLE_ROWS;
+    const unsigned lane = threadIdx.x & 31;
+    const uint32_t row = __ldg(entry + lane);
+    return BitBoard<32>(row);
+  } else {
+    if (p.second > q.second)
+      cuda::std::swap(p, q);
 
-  cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
+    cuda::std::pair<int, unsigned> delta = {(int)q.first - p.first, q.second - p.second};
 
-  // Recall div_gcd_table[x][y] = x / gcd(x, y)
-  const unsigned first_div = div_gcd_table[std::abs(delta.first)][delta.second];
-  const unsigned second_div = div_gcd_table[delta.second][std::abs(delta.first)];
-  delta.first = (delta.first < 0 ? -1 : 1) * first_div;
-  delta.second = second_div;
+    // Recall div_gcd_table[x][y] = x / gcd(x, y)
+    const unsigned first_div = div_gcd_table[std::abs(delta.first)][delta.second];
+    const unsigned second_div = div_gcd_table[delta.second][std::abs(delta.first)];
+    delta.first = (delta.first < 0 ? -1 : 1) * first_div;
+    delta.second = second_div;
 
-  switch(delta.second) {
-  case 1: return eliminate_line_inner(p, q, {delta.first, 1});
-  case 2: return eliminate_line_inner(p, q, {delta.first, 2});
-  case 4: return eliminate_line_inner(p, q, {delta.first, 4});
-  default: return eliminate_line_inner(p, q, delta);
+    switch(delta.second) {
+    case 1: return eliminate_line_inner(p, q, {delta.first, 1});
+    case 2: return eliminate_line_inner(p, q, {delta.first, 2});
+    case 4: return eliminate_line_inner(p, q, {delta.first, 4});
+    default: return eliminate_line_inner(p, q, delta);
+    }
   }
 }
 
