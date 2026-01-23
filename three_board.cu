@@ -669,7 +669,6 @@ _DI_ void ThreeBoard<N, W>::propagate() {
   ThreeBoard<N, W> prev;
 
   BitBoard<W> done_ons = known_on;
-  BitBoard<W> hop_ons = known_on;
 
   do {
     prev = *this;
@@ -681,9 +680,6 @@ _DI_ void ThreeBoard<N, W>::propagate() {
 
       if(!consistent())
         return;
-
-      eliminate_one_hop(known_on & ~hop_ons);
-      hop_ons = known_on;
     } while(*this != prev2);
 
     eliminate_all_lines(known_on & ~done_ons);

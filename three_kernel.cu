@@ -167,7 +167,6 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, unsigned ix, D
 
     ThreeBoard<N, W> sub_board = tried_board;
     sub_board.known_on.set(cell);
-    sub_board.eliminate_one_hop(cell);
     sub_board.eliminate_all_lines(cell);
     sub_board.propagate();
 
@@ -186,7 +185,6 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
   {
     ThreeBoard<N, W> sub_board = board;
     sub_board.known_on.set(cell);
-    sub_board.eliminate_one_hop(cell);
     sub_board.eliminate_all_lines(cell);
     sub_board.propagate();
     if(sub_board.consistent()) {

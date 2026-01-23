@@ -258,7 +258,7 @@ inline bool relevant_endpoint(unsigned n, std::pair<unsigned, unsigned> q) {
     // There is a point between that needs checking
     return true;
 
-  if(q.first * 3 >= n || q.second * 3 >= n)
+  if(q.first * 2 >= n || q.second * 2 >= n)
     // There is no way a fourth point can fit in the square
     return false;
 
