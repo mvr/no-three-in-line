@@ -11,6 +11,69 @@
 
 #include "params.hpp"
 
+#ifndef THREE_ENABLE_STATS
+#define THREE_ENABLE_STATS 0
+#endif
+
+enum class StatId : unsigned {
+  NodesVisited,
+  VulnerableBranches,
+  RowBranches,
+  CanonicalSkips,
+  Solutions,
+  InconsistentNodes,
+  LookaheadFailure,
+  Count
+};
+
+constexpr unsigned kStatCount = static_cast<unsigned>(StatId::Count);
+
+#if THREE_ENABLE_STATS
+struct SearchStats {
+  unsigned long long counters[kStatCount];
+};
+
+__device__ SearchStats g_search_stats;
+
+__device__ __forceinline__ void stats_record(StatId id, unsigned long long value = 1ULL) {
+  if ((threadIdx.x & 31) == 0) {
+    atomicAdd(&g_search_stats.counters[static_cast<unsigned>(id)], value);
+  }
+}
+
+static inline void reset_search_stats() {
+  SearchStats zero{};
+  cudaMemcpyToSymbol(g_search_stats, &zero, sizeof(SearchStats));
+}
+
+static inline void print_stats_snapshot(const SearchStats &stats) {
+  std::cerr << "[stats] nodes=" << stats.counters[static_cast<unsigned>(StatId::NodesVisited)]
+            << " vuln_branches=" << stats.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
+            << " row_branches=" << stats.counters[static_cast<unsigned>(StatId::RowBranches)]
+            << " canonical_skips=" << stats.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
+            << " inconsistent=" << stats.counters[static_cast<unsigned>(StatId::InconsistentNodes)]
+            << " lookaheadfail=" << stats.counters[static_cast<unsigned>(StatId::LookaheadFailure)]
+            << " solutions=" << stats.counters[static_cast<unsigned>(StatId::Solutions)]
+            << std::endl;
+}
+
+static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last_print, bool force = false) {
+  auto now = std::chrono::steady_clock::now();
+  if (!force && now - last_print < std::chrono::seconds(1)) {
+    return;
+  }
+
+  SearchStats snapshot;
+  cudaMemcpyFromSymbol(&snapshot, g_search_stats, sizeof(SearchStats));
+  print_stats_snapshot(snapshot);
+  last_print = now;
+}
+#else
+struct SearchStats {};
+
+__device__ __forceinline__ void stats_record(StatId, unsigned long long = 1ULL) {}
+#endif
+
 static inline void init_line_table_host_32() {
   if constexpr (N > 32) {
     return;
@@ -173,6 +236,8 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, unsigned ix, D
     if (sub_board.consistent()) {
       DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
+    } else {
+      stats_record(StatId::InconsistentNodes);
     }
 
     tried_board.known_off.set(cell);
@@ -190,6 +255,8 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
     if(sub_board.consistent()) {
       DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
+    } else {
+      stats_record(StatId::InconsistentNodes);
     }
   }
   {
@@ -199,6 +266,8 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
     if(sub_board.consistent()) {
       DeviceProblem<W> problem = {sub_board.known_on, sub_board.known_off};
       stack_push(stack, problem);
+    } else {
+      stats_record(StatId::InconsistentNodes);
     }
   }
 }
@@ -226,26 +295,34 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   board.known_on = problem.known_on;
   board.known_off = problem.known_off;
 
-  if (!board.consistent())
+  if (!board.consistent()) {
+    stats_record(StatId::InconsistentNodes);
     return;
+  }
+
+  stats_record(StatId::NodesVisited);
 
   if (board.is_canonical_orientation() == LexStatus::Greater) {
+    stats_record(StatId::CanonicalSkips);
     return;
   }
 
   if (board.complete()) {
+    stats_record(StatId::Solutions);
     solution_buffer_push(solution_buffer, board.known_on);
     return;
   }
 
   BitBoard<W> vulnerable = board.vulnerable();
-  if(!vulnerable.empty()) {
+  if (!vulnerable.empty()) {
     auto cell = vulnerable.template first_center_on<N>();
+    stats_record(StatId::VulnerableBranches);
     resolve_outcome_cell<N, W>(board, cell, stack, solution_buffer);
     return;
   }
 
   auto [row, row_unknown] = board.most_constrained_row();
+  stats_record(StatId::RowBranches);
   resolve_outcome_row<N, W, Axis::Horizontal>(board, row, stack);
 }
 
@@ -266,6 +343,11 @@ int solve_with_device_stack() {
   cudaMemset(d_solution_buffer, 0, sizeof(SolutionBuffer<W>));
 
   initialize_stack_kernel<N, W><<<1, 32>>>(d_stack, d_solution_buffer);
+
+#if THREE_ENABLE_STATS
+  reset_search_stats();
+  auto last_stats_print = std::chrono::steady_clock::now();
+#endif
 
   unsigned start_size;
   cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
@@ -299,7 +381,18 @@ int solve_with_device_stack() {
       
       cudaMemset(&d_solution_buffer->size, 0, sizeof(unsigned));
     }
+
+#if THREE_ENABLE_STATS
+    maybe_print_stats(last_stats_print);
+#endif
   }
+
+  cudaDeviceSynchronize();
+
+#if THREE_ENABLE_STATS
+  // Print a final snapshot so the last interval isn't lost if the loop exits quickly.
+  maybe_print_stats(last_stats_print, true);
+#endif
 
   cudaFree(d_stack);
   cudaFree(d_solution_buffer);
