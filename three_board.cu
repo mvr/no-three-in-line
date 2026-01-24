@@ -387,7 +387,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
 }
 
 template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const{
+_DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const {
   BitBoard<W> result;
 
   if constexpr (W == 32) {
@@ -832,8 +832,11 @@ ThreeBoard<N, W>::most_constrained_row() const {
     BitBoard<W> known = known_on | known_off;
     unknown = N - popcount<32>(known.state);
 
-    if(known_on.state == 0)
+    if(known_on.state == 0) {
       unknown = unknown * (unknown - 1) / 2;
+    } else {
+      unknown *= ROW_SINGLE_ON_PENALTY;
+    }
 
     if ((threadIdx.x & 31) >= N || unknown == 0)
       unknown = std::numeric_limits<unsigned>::max();
@@ -844,11 +847,26 @@ ThreeBoard<N, W>::most_constrained_row() const {
     unsigned unknown_xy = N - popcount<32>(known.state.x) - popcount<32>(known.state.y);
     unsigned unknown_zw = N - popcount<32>(known.state.z) - popcount<32>(known.state.w);
 
-    if(known_on.state.x == 0 && known_on.state.y == 0)
-      unknown_xy = unknown_xy * (unknown_xy - 1) / 2;
+    bool on_xy_empty = (known_on.state.x == 0 && known_on.state.y == 0);
+    bool on_zw_empty = (known_on.state.z == 0 && known_on.state.w == 0);
 
-    if(known_on.state.z == 0 && known_on.state.w == 0)
+    if(on_xy_empty) {
+      unknown_xy = unknown_xy * (unknown_xy - 1) / 2;
+    } else {
+      unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
+      if (on_pop_xy == 1) {
+        unknown_xy *= ROW_SINGLE_ON_PENALTY;
+      }
+    }
+
+    if(on_zw_empty) {
       unknown_zw = unknown_zw * (unknown_zw - 1) / 2;
+    } else {
+      unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
+      if (on_pop_zw == 1) {
+        unknown_zw *= ROW_SINGLE_ON_PENALTY;
+      }
+    }
 
     if ((threadIdx.x & 31) * 2 >= N || unknown_xy == 0)
       unknown_xy = std::numeric_limits<unsigned>::max();
