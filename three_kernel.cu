@@ -22,7 +22,6 @@ enum class StatId : unsigned {
   CanonicalSkips,
   Solutions,
   InconsistentNodes,
-  LookaheadFailure,
   Count
 };
 
@@ -46,18 +45,18 @@ static inline void reset_search_stats() {
   cudaMemcpyToSymbol(g_search_stats, &zero, sizeof(SearchStats));
 }
 
-static inline void print_stats_snapshot(const SearchStats &stats) {
+static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack_size) {
   std::cerr << "[stats] nodes=" << stats.counters[static_cast<unsigned>(StatId::NodesVisited)]
             << " vuln_branches=" << stats.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
             << " row_branches=" << stats.counters[static_cast<unsigned>(StatId::RowBranches)]
             << " canonical_skips=" << stats.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
             << " inconsistent=" << stats.counters[static_cast<unsigned>(StatId::InconsistentNodes)]
-            << " lookaheadfail=" << stats.counters[static_cast<unsigned>(StatId::LookaheadFailure)]
+            << " stack_size=" << stack_size
             << " solutions=" << stats.counters[static_cast<unsigned>(StatId::Solutions)]
             << std::endl;
 }
 
-static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last_print, bool force = false) {
+static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last_print, unsigned stack_size, bool force = false) {
   auto now = std::chrono::steady_clock::now();
   if (!force && now - last_print < std::chrono::seconds(1)) {
     return;
@@ -65,7 +64,7 @@ static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last
 
   SearchStats snapshot;
   cudaMemcpyFromSymbol(&snapshot, g_search_stats, sizeof(SearchStats));
-  print_stats_snapshot(snapshot);
+  print_stats_snapshot(snapshot, stack_size);
   last_print = now;
 }
 #else
@@ -383,7 +382,7 @@ int solve_with_device_stack() {
     }
 
 #if THREE_ENABLE_STATS
-    maybe_print_stats(last_stats_print);
+    maybe_print_stats(last_stats_print, start_size);
 #endif
   }
 
@@ -391,7 +390,7 @@ int solve_with_device_stack() {
 
 #if THREE_ENABLE_STATS
   // Print a final snapshot so the last interval isn't lost if the loop exits quickly.
-  maybe_print_stats(last_stats_print, true);
+  maybe_print_stats(last_stats_print, start_size, true);
 #endif
 
   cudaFree(d_stack);
