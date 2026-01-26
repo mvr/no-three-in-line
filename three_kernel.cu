@@ -348,6 +348,9 @@ int solve_with_device_stack() {
   auto last_stats_print = std::chrono::steady_clock::now();
 #endif
 
+  Problem<W> *d_compact_tmp = nullptr;
+  size_t compact_capacity = 0;
+
   unsigned start_size;
   cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
 
@@ -360,9 +363,26 @@ int solve_with_device_stack() {
 
     unsigned new_size;
     cudaMemcpy(&new_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+    unsigned pushes = new_size - start_size;
 
-    cudaMemcpy(&d_stack->problems[batch_start], &d_stack->problems[start_size],
-               (new_size - start_size) * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+    if (pushes > 0) {
+      if (pushes > batch_size) {
+        if (pushes > compact_capacity) {
+          if (d_compact_tmp) {
+            cudaFree(d_compact_tmp);
+          }
+          cudaMalloc((void **)&d_compact_tmp, pushes * sizeof(Problem<W>));
+          compact_capacity = pushes;
+        }
+        cudaMemcpy(d_compact_tmp, &d_stack->problems[start_size],
+                   pushes * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+        cudaMemcpy(&d_stack->problems[batch_start], d_compact_tmp,
+                   pushes * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+      } else {
+        cudaMemcpy(&d_stack->problems[batch_start], &d_stack->problems[start_size],
+                   pushes * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+      }
+    }
 
     start_size = new_size - batch_size;
 
@@ -393,6 +413,9 @@ int solve_with_device_stack() {
   maybe_print_stats(last_stats_print, start_size, true);
 #endif
 
+  if (d_compact_tmp) {
+    cudaFree(d_compact_tmp);
+  }
   cudaFree(d_stack);
   cudaFree(d_solution_buffer);
 
