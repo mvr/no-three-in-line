@@ -274,7 +274,7 @@ __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pa
 template <unsigned N, unsigned W>
 __global__ void initialize_stack_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
   ThreeBoard<N, W> board;
-  resolve_outcome_row<N, W, Axis::Horizontal>(board, N/2, stack);
+  resolve_outcome_row<N, W, Axis::Horizontal>(board, DEFAULT_SEED_ROW, stack);
 }
 
 template <unsigned N, unsigned W>

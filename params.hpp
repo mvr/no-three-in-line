@@ -18,5 +18,4 @@ constexpr bool LINE_TABLE_FULL_WARP_LOAD = false;
 constexpr unsigned LINE_TABLE_ROWS = LINE_TABLE_FULL_WARP_LOAD ? 32 : ((N + 7) & ~7u);
 static_assert(LINE_TABLE_ROWS <= 32);
 
-constexpr unsigned DEFAULT_SEED_ROW = N / 2;
-static_assert(DEFAULT_SEED_ROW < N);
+constexpr unsigned DEFAULT_SEED_ROW = 0;
