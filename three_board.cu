@@ -671,16 +671,16 @@ _DI_ void ThreeBoard<N, W>::propagate() {
   BitBoard<W> done_ons = known_on;
 
   do {
-    prev = *this;
-
-    ThreeBoard<N, W> prev2;
     do {
-      prev2 = *this;
+      prev = *this;
       *this = force_orthogonal();
 
       if(!consistent())
         return;
-    } while(*this != prev2);
+
+    } while(*this != prev);
+
+    prev = *this;
 
     eliminate_all_lines(known_on & ~done_ons);
 

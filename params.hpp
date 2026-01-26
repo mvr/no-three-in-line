@@ -4,7 +4,7 @@ const unsigned N = 13;
 static_assert(N <= 64);
 
 const unsigned WARPS_PER_BLOCK = 4;
-const unsigned LAUNCH_MIN_BLOCKS = 10;
+const unsigned LAUNCH_MIN_BLOCKS = 12;
 const unsigned MAX_BATCH_SIZE = 1<<15;
 const unsigned STACK_CAPACITY = 1<<20;
 const unsigned SOLUTION_BUFFER_CAPACITY = 128;
