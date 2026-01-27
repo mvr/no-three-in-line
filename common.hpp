@@ -138,8 +138,8 @@ _HD_ uint32_t mux3(uint32_t x, uint32_t y, uint32_t z) { return lop3<0xCA>(x, y,
 
 __constant__ unsigned char div_gcd_table[64][64];
 
-__constant__ uint64_t relevant_endpoint_table[64];
-__constant__ uint64_t relevant_endpoint_table_64[256];
+__device__ uint64_t relevant_endpoint_table[64];
+__device__ uint64_t relevant_endpoint_table_64[256];
 
 template <unsigned W>
 struct BinaryCountSaturating {
