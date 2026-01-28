@@ -18,6 +18,7 @@
 enum class StatId : unsigned {
   NodesVisited,
   VulnerableBranches,
+  SemiVulnerableBranches,
   RowBranches,
   CanonicalSkips,
   Solutions,
@@ -64,6 +65,7 @@ static inline void reset_search_stats() {
 static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack_size) {
   std::cerr << "[stats] nodes=" << stats.counters[static_cast<unsigned>(StatId::NodesVisited)]
             << " vuln_branches=" << stats.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
+            << " semivuln_branches=" << stats.counters[static_cast<unsigned>(StatId::SemiVulnerableBranches)]
             << " row_branches=" << stats.counters[static_cast<unsigned>(StatId::RowBranches)]
             << " canonical_skips=" << stats.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
             << " inconsistent=" << stats.counters[static_cast<unsigned>(StatId::InconsistentNodes)]
@@ -333,6 +335,14 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   if (!vulnerable.empty()) {
     auto cell = vulnerable.template first_center_on<N>();
     stats_record(StatId::VulnerableBranches);
+    resolve_outcome_cell<N, W>(board, cell, stack, solution_buffer);
+    return;
+  }
+
+  BitBoard<W> semivulnerable = board.semivulnerable();
+  if (!semivulnerable.empty()) {
+    auto cell = semivulnerable.template first_center_on<N>();
+    stats_record(StatId::SemiVulnerableBranches);
     resolve_outcome_cell<N, W>(board, cell, stack, solution_buffer);
     return;
   }

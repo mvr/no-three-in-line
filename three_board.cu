@@ -31,6 +31,7 @@ struct ThreeBoard {
   _DI_ ThreeBoard<N, W> force_orthogonal() const { return force_orthogonal_horiz().force_orthogonal_vert(); }
 
   _DI_ BitBoard<W> vulnerable() const;
+  _DI_ BitBoard<W> semivulnerable() const;
 
   _DI_ BitBoard<W> eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q, cuda::std::pair<unsigned, unsigned> delta);
   _DI_ BitBoard<W> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
@@ -475,6 +476,92 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const {
 
   result &= ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
 
+  return result;
+}
+
+template <unsigned N, unsigned W>
+_DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable() const {
+  BitBoard<W> result;
+
+  if constexpr (W == 32) {
+    // Semivulnerable horizontally: 0 on, 4 unknown.
+    {
+      unsigned on_pop = popcount<32>(known_on.state);
+      unsigned off_pop = popcount<32>(known_off.state);
+      unsigned unknown_pop = N - on_pop - off_pop;
+      bool semivuln_row = (on_pop == 0 && unknown_pop == 4);
+
+      if (semivuln_row)
+        result.state = ~(board_row_t<W>)0;
+    }
+
+    // Semivulnerable vertically: 0 on, 4 unknown.
+    {
+      BitBoard<32> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
+      const BinaryCountSaturating3<32> on_count = count_vertically_saturating3<32>(known_on.state);
+      const BinaryCountSaturating3<32> unknown_count = count_vertically_saturating3<32>(unknown.state);
+
+      const uint32_t on_zero = ~(on_count.bit0 | on_count.bit1 | on_count.bit2);
+      const uint32_t unknown_eq_4 = unknown_count.bit2 & ~unknown_count.bit1 & ~unknown_count.bit0;
+      const uint32_t semivuln_column = on_zero & unknown_eq_4;
+
+      result.state |= semivuln_column;
+    }
+  } else {
+    // Semivulnerable horizontally: 0 on, 4 unknown.
+    {
+      unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
+      unsigned off_pop_xy = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
+      unsigned unknown_pop_xy = N - on_pop_xy - off_pop_xy;
+      bool semivuln_row_xy = (on_pop_xy == 0 && unknown_pop_xy == 4);
+
+      if (semivuln_row_xy) {
+        result.state.x = ~(board_row_t<W>)0;
+        result.state.y = ~(board_row_t<W>)0;
+      }
+
+      unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
+      unsigned off_pop_zw = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
+      unsigned unknown_pop_zw = N - on_pop_zw - off_pop_zw;
+      bool semivuln_row_zw = (on_pop_zw == 0 && unknown_pop_zw == 4);
+
+      if (semivuln_row_zw) {
+        result.state.z = ~(board_row_t<W>)0;
+        result.state.w = ~(board_row_t<W>)0;
+      }
+    }
+
+    // Semivulnerable vertically: 0 on, 4 unknown.
+    {
+      BitBoard<64> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
+
+      const BinaryCountSaturating3<32> on_count_xz =
+          count_vertically_saturating3<32>(known_on.state.x) + count_vertically_saturating3<32>(known_on.state.z);
+      const BinaryCountSaturating3<32> unknown_count_xz =
+          count_vertically_saturating3<32>(unknown.state.x) + count_vertically_saturating3<32>(unknown.state.z);
+
+      const uint32_t on_zero_xz = ~(on_count_xz.bit0 | on_count_xz.bit1 | on_count_xz.bit2);
+      const uint32_t unknown_eq_4_xz = unknown_count_xz.bit2 & ~unknown_count_xz.bit1 & ~unknown_count_xz.bit0;
+      const uint32_t semivuln_column_xz = on_zero_xz & unknown_eq_4_xz;
+
+      result.state.x |= semivuln_column_xz;
+      result.state.z |= semivuln_column_xz;
+
+      const BinaryCountSaturating3<32> on_count_yw =
+          count_vertically_saturating3<32>(known_on.state.y) + count_vertically_saturating3<32>(known_on.state.w);
+      const BinaryCountSaturating3<32> unknown_count_yw =
+          count_vertically_saturating3<32>(unknown.state.y) + count_vertically_saturating3<32>(unknown.state.w);
+
+      const uint32_t on_zero_yw = ~(on_count_yw.bit0 | on_count_yw.bit1 | on_count_yw.bit2);
+      const uint32_t unknown_eq_4_yw = unknown_count_yw.bit2 & ~unknown_count_yw.bit1 & ~unknown_count_yw.bit0;
+      const uint32_t semivuln_column_yw = on_zero_yw & unknown_eq_4_yw;
+
+      result.state.y |= semivuln_column_yw;
+      result.state.w |= semivuln_column_yw;
+    }
+  }
+
+  result &= ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
   return result;
 }
 
