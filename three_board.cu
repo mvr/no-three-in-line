@@ -915,10 +915,13 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<W> qs = known_on & ThreeBoard<N, W>::relevant_endpoint(p);
   cuda::std::pair<int, int> q;
   while (qs.some_on_if_any(q)) {
-    qs.erase(q);
-    known_off |= eliminate_line(p, q);
-    if (!consistent())
+    BitBoard<W> row = eliminate_line(p, q);
+    if (__any_sync(0xffffffff, row.state & known_on.state)) {
+      known_off |= row;
       return;
+    }
+    known_off |= row;
+    qs.erase(q);
   }
   known_off &= bounds();
 }
@@ -928,17 +931,19 @@ _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
   cuda::std::pair<int, int> p;
   while (ps.some_on_if_any(p)) {
-    ps.erase(p);
-
     BitBoard<W> qs = known_on & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
 
     cuda::std::pair<int, int> q;
     while (qs.some_on_if_any(q)) {
-      qs.erase(q);
-      known_off |= eliminate_line(p, q);
-      if (!consistent())
+      BitBoard<32> row = eliminate_line(p, q);
+      if (__any_sync(0xffffffff, row.state & known_on.state)) {
+        known_off |= row;
         return;
+      }
+      known_off |= row;
+      qs.erase(q);
     }
+    ps.erase(p);
   }
   known_off &= bounds();
 }
