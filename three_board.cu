@@ -199,15 +199,15 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation() const {
   bool any_unknown = false;
   LexStatus order;
 
-  BitBoard<W> flip_v_on = known_on.flip_vertical().rotate_torus(0, N);
-  BitBoard<W> flip_v_off = known_off.flip_vertical().rotate_torus(0, N);
-  order = compare_with_unknowns<N, W>(known_on, known_off, flip_v_on, flip_v_off);
-  if (order == LexStatus::Greater) return LexStatus::Greater;
-  if (order == LexStatus::Unknown) any_unknown = true;
-
   BitBoard<W> flip_h_on = known_on.flip_horizontal().rotate_torus(N, 0);
   BitBoard<W> flip_h_off = known_off.flip_horizontal().rotate_torus(N, 0);
   order = compare_with_unknowns<N, W>(known_on, known_off, flip_h_on, flip_h_off);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) any_unknown = true;
+
+  BitBoard<W> flip_v_on = known_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> flip_v_off = known_off.flip_vertical().rotate_torus(0, N);
+  order = compare_with_unknowns<N, W>(known_on, known_off, flip_v_on, flip_v_off);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
