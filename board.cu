@@ -779,9 +779,9 @@ _DI_ BitBoard<W> BitBoard<W>::positions_before(int x, int y) {
 template<unsigned W>
 _DI_ bool BitBoard<W>::empty() const {
   if constexpr (W == 32) {
-    return __ballot_sync(0xffffffff, state) == 0;
+    return !__any_sync(0xffffffff, state);
   } else {
-    return __ballot_sync(0xffffffff, state.x | state.y | state.z | state.w) == 0;
+    return !__any_sync(0xffffffff, state.x | state.y | state.z | state.w);
   }
 }
 
