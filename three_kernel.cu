@@ -19,6 +19,7 @@ enum class StatId : unsigned {
   NodesVisited,
   VulnerableBranches,
   SemiVulnerableBranches,
+  SymmetryForced,
   RowBranches,
   CanonicalSkips,
   Solutions,
@@ -64,6 +65,7 @@ static inline void reset_search_stats() {
 
 static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack_size) {
   std::cerr << "[stats] nodes=" << stats.counters[static_cast<unsigned>(StatId::NodesVisited)]
+            << " sym_force=" << stats.counters[static_cast<unsigned>(StatId::SymmetryForced)]
             << " vuln_branches=" << stats.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
             << " semivuln_branches=" << stats.counters[static_cast<unsigned>(StatId::SemiVulnerableBranches)]
             << " row_branches=" << stats.counters[static_cast<unsigned>(StatId::RowBranches)]
@@ -320,7 +322,9 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
 
   stats_record(StatId::NodesVisited);
 
-  if (board.is_canonical_orientation() == LexStatus::Greater) {
+  ForcedCell forced{};
+  LexStatus canonical = board.is_canonical_orientation_with_forced(forced);
+  if (canonical == LexStatus::Greater) {
     stats_record(StatId::CanonicalSkips);
     return;
   }
@@ -328,6 +332,12 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   if (board.complete()) {
     stats_record(StatId::Solutions);
     solution_buffer_push(solution_buffer, board.known_on);
+    return;
+  }
+
+  if (forced.has_force) {
+    stats_record(StatId::SymmetryForced);
+    resolve_outcome_cell<N, W>(board, forced.cell, stack, solution_buffer);
     return;
   }
 

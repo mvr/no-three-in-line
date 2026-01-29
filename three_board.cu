@@ -7,6 +7,12 @@
 
 __device__ uint32_t *g_line_table_32 = nullptr;
 
+struct ForcedCell {
+  bool has_force = false;
+  bool force_on = false;
+  cuda::std::pair<int, int> cell{0, 0};
+};
+
 template <unsigned N, unsigned W>
 struct ThreeBoard {
   BitBoard<W> known_on;
@@ -25,6 +31,7 @@ struct ThreeBoard {
   _DI_ bool complete() const;
   _DI_ unsigned unknown_pop() const;
   _DI_ LexStatus is_canonical_orientation() const;
+  _DI_ LexStatus is_canonical_orientation_with_forced(ForcedCell &forced) const;
 
   _DI_ ThreeBoard<N, W> force_orthogonal_horiz() const;
   _DI_ ThreeBoard<N, W> force_orthogonal_vert() const;
@@ -194,6 +201,42 @@ _DI_ LexStatus compare_with_unknowns(const BitBoard<W> a_on, const BitBoard<W> a
   }
 }
 
+struct ForceCandidate {
+  bool has_force = false;
+  bool force_on = false;
+  bool on_b = false;
+  cuda::std::pair<int, int> cell{0, 0};
+};
+
+template<unsigned N, unsigned W>
+_DI_ LexStatus compare_with_unknowns_forced(const BitBoard<W> a_on, const BitBoard<W> a_off,
+                                            const BitBoard<W> b_on, const BitBoard<W> b_off,
+                                            ForceCandidate &forced) {
+  BitBoard<W> a_unknown = ~(a_on | a_off);
+  BitBoard<W> b_unknown = ~(b_on | b_off);
+  const BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
+
+  LexStatus order = compare_with_unknowns<N, W>(a_on, a_off, b_on, b_off);
+  if (order == LexStatus::Unknown) {
+    BitBoard<W> critical_unknowns = (a_unknown | b_unknown) & bounds;
+    if (!critical_unknowns.empty()) {
+      auto candidate = critical_unknowns.first_on();
+      if (a_on.get(candidate) && b_unknown.get(candidate)) {
+        forced.has_force = true;
+        forced.force_on = true;
+        forced.on_b = true;
+        forced.cell = candidate;
+      } else if (a_unknown.get(candidate) && b_off.get(candidate)) {
+        forced.has_force = true;
+        forced.force_on = false;
+        forced.on_b = false;
+        forced.cell = candidate;
+      }
+    }
+  }
+  return order;
+}
+
 template <unsigned N, unsigned W>
 _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation() const {
   bool any_unknown = false;
@@ -243,6 +286,164 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation() const {
 
   if (any_unknown)
     return LexStatus::Unknown;
+
+  return LexStatus::Less;
+}
+
+template <unsigned N, unsigned W>
+_DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell &forced) const {
+  bool any_unknown = false;
+  bool has_force = false;
+  LexStatus order;
+  ForceCandidate local_force;
+
+  constexpr int kSize = (W == 32) ? 32 : 64;
+  constexpr int kMask = kSize - 1;
+  auto wrap = [&](int v) { return v & kMask; };
+
+  auto rot_inv = [&](cuda::std::pair<int, int> cell, int rh, int rv) {
+    cell.first = wrap(cell.first - rh);
+    cell.second = wrap(cell.second - rv);
+    return cell;
+  };
+  auto flip_h = [&](cuda::std::pair<int, int> cell) {
+    cell.first = kMask - cell.first;
+    return cell;
+  };
+  auto flip_v = [&](cuda::std::pair<int, int> cell) {
+    cell.second = kMask - cell.second;
+    return cell;
+  };
+  auto flip_d = [&](cuda::std::pair<int, int> cell) {
+    return cuda::std::pair<int, int>{cell.second, cell.first};
+  };
+
+  auto maybe_set_force = [&](const ForceCandidate &cand, auto inv_map) {
+    if (!has_force && cand.has_force) {
+      auto cell = cand.cell;
+      if (cand.on_b) {
+        cell = inv_map(cell);
+      }
+      forced.has_force = true;
+      forced.force_on = cand.force_on;
+      forced.cell = cell;
+      has_force = true;
+    }
+  };
+
+  BitBoard<W> flip_h_on = known_on.flip_horizontal().rotate_torus(N, 0);
+  BitBoard<W> flip_h_off = known_off.flip_horizontal().rotate_torus(N, 0);
+  local_force = ForceCandidate{};
+  order = compare_with_unknowns_forced<N, W>(known_on, known_off, flip_h_on, flip_h_off, local_force);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) {
+    any_unknown = true;
+    auto inv_map = [&](cuda::std::pair<int, int> cell) {
+      cell = rot_inv(cell, static_cast<int>(N), 0);
+      cell = flip_h(cell);
+      return cell;
+    };
+    maybe_set_force(local_force, inv_map);
+  }
+
+  BitBoard<W> flip_v_on = known_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> flip_v_off = known_off.flip_vertical().rotate_torus(0, N);
+  local_force = ForceCandidate{};
+  order = compare_with_unknowns_forced<N, W>(known_on, known_off, flip_v_on, flip_v_off, local_force);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) {
+    any_unknown = true;
+    auto inv_map = [&](cuda::std::pair<int, int> cell) {
+      cell = rot_inv(cell, 0, static_cast<int>(N));
+      cell = flip_v(cell);
+      return cell;
+    };
+    maybe_set_force(local_force, inv_map);
+  }
+
+  BitBoard<W> rot180_on = flip_h_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> rot180_off = flip_h_off.flip_vertical().rotate_torus(0, N);
+  local_force = ForceCandidate{};
+  order = compare_with_unknowns_forced<N, W>(known_on, known_off, rot180_on, rot180_off, local_force);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) {
+    any_unknown = true;
+    auto inv_map = [&](cuda::std::pair<int, int> cell) {
+      cell = rot_inv(cell, 0, static_cast<int>(N));
+      cell = flip_v(cell);
+      cell = rot_inv(cell, static_cast<int>(N), 0);
+      cell = flip_h(cell);
+      return cell;
+    };
+    maybe_set_force(local_force, inv_map);
+  }
+
+  BitBoard<W> diag_on = known_on.flip_diagonal();
+  BitBoard<W> diag_off = known_off.flip_diagonal();
+  local_force = ForceCandidate{};
+  order = compare_with_unknowns_forced<N, W>(known_on, known_off, diag_on, diag_off, local_force);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) {
+    any_unknown = true;
+    auto inv_map = [&](cuda::std::pair<int, int> cell) {
+      return flip_d(cell);
+    };
+    maybe_set_force(local_force, inv_map);
+  }
+
+  BitBoard<W> rot90_on = diag_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> rot90_off = diag_off.flip_vertical().rotate_torus(0, N);
+  local_force = ForceCandidate{};
+  order = compare_with_unknowns_forced<N, W>(known_on, known_off, rot90_on, rot90_off, local_force);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) {
+    any_unknown = true;
+    auto inv_map = [&](cuda::std::pair<int, int> cell) {
+      cell = rot_inv(cell, 0, static_cast<int>(N));
+      cell = flip_v(cell);
+      cell = flip_d(cell);
+      return cell;
+    };
+    maybe_set_force(local_force, inv_map);
+  }
+
+  BitBoard<W> rot270_on = diag_on.flip_horizontal().rotate_torus(N, 0);
+  BitBoard<W> rot270_off = diag_off.flip_horizontal().rotate_torus(N, 0);
+  local_force = ForceCandidate{};
+  order = compare_with_unknowns_forced<N, W>(known_on, known_off, rot270_on, rot270_off, local_force);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) {
+    any_unknown = true;
+    auto inv_map = [&](cuda::std::pair<int, int> cell) {
+      cell = rot_inv(cell, static_cast<int>(N), 0);
+      cell = flip_h(cell);
+      cell = flip_d(cell);
+      return cell;
+    };
+    maybe_set_force(local_force, inv_map);
+  }
+
+  BitBoard<W> anti_diag_on = rot270_on.flip_vertical().rotate_torus(0, N);
+  BitBoard<W> anti_diag_off = rot270_off.flip_vertical().rotate_torus(0, N);
+  local_force = ForceCandidate{};
+  order = compare_with_unknowns_forced<N, W>(known_on, known_off, anti_diag_on, anti_diag_off, local_force);
+  if (order == LexStatus::Greater) return LexStatus::Greater;
+  if (order == LexStatus::Unknown) {
+    any_unknown = true;
+    auto inv_map = [&](cuda::std::pair<int, int> cell) {
+      cell = rot_inv(cell, 0, static_cast<int>(N));
+      cell = flip_v(cell);
+      cell = rot_inv(cell, static_cast<int>(N), 0);
+      cell = flip_h(cell);
+      cell = flip_d(cell);
+      return cell;
+    };
+    maybe_set_force(local_force, inv_map);
+  }
+
+  if (any_unknown) {
+    return LexStatus::Unknown;
+  }
 
   return LexStatus::Less;
 }
