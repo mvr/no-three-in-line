@@ -19,6 +19,7 @@ enum class StatId : unsigned {
   NodesVisited,
   VulnerableBranches,
   SemiVulnerableBranches,
+  QuasiVulnerableBranches,
   SymmetryForced,
   RowBranches,
   CanonicalSkips,
@@ -68,6 +69,7 @@ static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack
             << " sym_force=" << stats.counters[static_cast<unsigned>(StatId::SymmetryForced)]
             << " vuln_branches=" << stats.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
             << " semivuln_branches=" << stats.counters[static_cast<unsigned>(StatId::SemiVulnerableBranches)]
+            << " quasivuln_branches=" << stats.counters[static_cast<unsigned>(StatId::QuasiVulnerableBranches)]
             << " row_branches=" << stats.counters[static_cast<unsigned>(StatId::RowBranches)]
             << " canonical_skips=" << stats.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
             << " inconsistent=" << stats.counters[static_cast<unsigned>(StatId::InconsistentNodes)]
@@ -354,6 +356,14 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   if (!semivulnerable.empty()) {
     auto cell = semivulnerable.template first_center_on<N>();
     stats_record(StatId::SemiVulnerableBranches);
+    resolve_outcome_cell<N, W>(board, cell, stack, solution_buffer);
+    return;
+  }
+
+  BitBoard<W> quasivulnerable = board.quasivulnerable();
+  if (!quasivulnerable.empty()) {
+    auto cell = quasivulnerable.template first_center_on<N>();
+    stats_record(StatId::QuasiVulnerableBranches);
     resolve_outcome_cell<N, W>(board, cell, stack, solution_buffer);
     return;
   }
