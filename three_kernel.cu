@@ -335,7 +335,8 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
     return;
   }
 
-  if (forced.has_force) {
+  const unsigned on_pop = board.known_on.pop();
+  if (forced.has_force && on_pop >= SYM_FORCE_MIN_ON && on_pop <= SYM_FORCE_MAX_ON) {
     stats_record(StatId::SymmetryForced);
     resolve_outcome_cell<N, W>(board, forced.cell, stack, solution_buffer);
     return;

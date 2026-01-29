@@ -19,3 +19,7 @@ constexpr unsigned LINE_TABLE_ROWS = LINE_TABLE_FULL_WARP_LOAD ? 32 : ((N + 7) &
 static_assert(LINE_TABLE_ROWS <= 32);
 
 constexpr unsigned DEFAULT_SEED_ROW = 0;
+
+// Symmetry-forced cell thresholds
+constexpr unsigned SYM_FORCE_MIN_ON = 0;
+constexpr unsigned SYM_FORCE_MAX_ON = N - 2; // Empirically best at N=12,13
