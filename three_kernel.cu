@@ -66,7 +66,7 @@ static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack
 
 static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last_print, unsigned stack_size, bool force = false) {
   auto now = std::chrono::steady_clock::now();
-  if (!force && now - last_print < std::chrono::seconds(1)) {
+  if (!force && now - last_print < std::chrono::seconds(10)) {
     return;
   }
 
