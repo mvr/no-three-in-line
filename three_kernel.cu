@@ -30,22 +30,6 @@ enum class StatId : unsigned {
 
 constexpr unsigned kStatCount = static_cast<unsigned>(StatId::Count);
 
-template <unsigned N, unsigned W>
-__device__ unsigned pick_center_col(board_row_t<W> bits) {
-  constexpr int center_right = static_cast<int>(N / 2);
-  constexpr int center_left = static_cast<int>((N - 1) / 2);
-  for (int delta = 0; delta < static_cast<int>(N); ++delta) {
-    int c = center_right + delta;
-    if (c < static_cast<int>(N) && (bits & (board_row_t<W>(1) << c)))
-      return static_cast<unsigned>(c);
-    int c2 = center_left - delta;
-    if (c2 >= 0 && c2 != c && (bits & (board_row_t<W>(1) << c2)))
-      return static_cast<unsigned>(c2);
-  }
-  return static_cast<unsigned>(find_first_set<W>(bits));
-}
-
-
 #if THREE_ENABLE_STATS
 struct SearchStats {
   unsigned long long counters[kStatCount];
@@ -217,6 +201,30 @@ __device__ bool solution_buffer_push(SolutionBuffer<W> *buffer, BitBoard<W> &sol
   solution.save(buffer->solutions[pos].data());
 
   return true;
+}
+
+template <unsigned N, unsigned W>
+__device__ unsigned pick_center_col(board_row_t<W> bits) {
+  constexpr int center_right = static_cast<int>(N / 2);
+  constexpr int center_left = static_cast<int>((N - 1) / 2);
+  board_row_t<W> right_mask = bits & (~((board_row_t<W>(1) << center_right) - 1));
+  board_row_t<W> left_mask = bits & ((board_row_t<W>(1) << (center_left + 1)) - 1);
+
+  int right = find_first_set<W>(right_mask);
+  int left = find_last_set<W>(left_mask);
+
+  bool has_right = right_mask != 0;
+  bool has_left = left_mask != 0;
+
+  if (!has_left && has_right)
+    return right;
+
+  if (!has_right && has_left)
+    return left;
+
+  int dist_right = right - center_right;
+  int dist_left = center_left - left;
+  return static_cast<unsigned>(dist_right <= dist_left ? right : left);
 }
 
 template <unsigned N, unsigned W, Axis Dir>
