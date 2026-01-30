@@ -21,6 +21,7 @@ enum class StatId : unsigned {
   SemiVulnerableBranches,
   QuasiVulnerableBranches,
   SymmetryForced,
+  CellBranches,
   RowBranches,
   CanonicalSkips,
   Solutions,
@@ -54,6 +55,7 @@ static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack
             << " vuln_branches=" << stats.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
             << " semivuln_branches=" << stats.counters[static_cast<unsigned>(StatId::SemiVulnerableBranches)]
             << " quasivuln_branches=" << stats.counters[static_cast<unsigned>(StatId::QuasiVulnerableBranches)]
+            << " cell_branches=" << stats.counters[static_cast<unsigned>(StatId::CellBranches)]
             << " row_branches=" << stats.counters[static_cast<unsigned>(StatId::RowBranches)]
             << " canonical_skips=" << stats.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
             << " inconsistent=" << stats.counters[static_cast<unsigned>(StatId::InconsistentNodes)]
@@ -275,6 +277,73 @@ __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, unsigned ix, D
   }
 }
 
+
+template <unsigned N, unsigned W>
+__device__ int cell_branch_score(const ThreeBoard<N, W> &board,
+                                 unsigned x,
+                                 unsigned y) {
+  board_row_t<W> row_on_bits = board.known_on.row(y);
+  board_row_t<W> row_off_bits = board.known_off.row(y);
+  unsigned row_on = popcount<W>(row_on_bits);
+  unsigned row_off = popcount<W>(row_off_bits);
+  unsigned row_unknown = N - row_on - row_off;
+
+  board_row_t<W> col_on_mask = board.known_on.column(x);
+  board_row_t<W> col_off_mask = board.known_off.column(x);
+  unsigned col_on = popcount<W>(col_on_mask);
+  unsigned col_off = popcount<W>(col_off_mask);
+  unsigned col_unknown = N - col_on - col_off;
+
+  auto cell = cuda::std::pair<unsigned, unsigned>{x, y};
+  BitBoard<W> endpoint = ThreeBoard<N, W>::relevant_endpoint(cell);
+  // unsigned endpoint_off = (endpoint & board.known_off).pop();
+  unsigned endpoint_on = (endpoint & board.known_on).pop();
+
+  int score = 0;
+  score += CELL_BRANCH_W_COL_UNKNOWN * static_cast<int>(col_unknown);
+  score += CELL_BRANCH_W_ROW_UNKNOWN * static_cast<int>(row_unknown);
+  score += CELL_BRANCH_W_COL_ON * static_cast<int>(col_on);
+  score -= CELL_BRANCH_W_COL_OFF * static_cast<int>(col_off);
+  // score -= CELL_BRANCH_W_ENDPOINT_OFF * static_cast<int>(endpoint_off);
+  score -= CELL_BRANCH_W_ENDPOINT_ON * static_cast<int>(endpoint_on);
+  return score;
+}
+
+template <unsigned N, unsigned W>
+__device__ cuda::std::pair<unsigned, unsigned> pick_best_branch_cell(const ThreeBoard<N, W> &board) {
+  BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
+  BitBoard<W> unknown = ~board.known_on & ~board.known_off & bounds;
+  const int center = static_cast<int>((N - 1) / 2);
+
+  int best_score = 0x7fffffff;
+  int best_dist = 0x7fffffff;
+  unsigned best_x = 0;
+  unsigned best_y = 0;
+
+  cuda::std::pair<int, int> cell;
+  while (unknown.some_on_if_any(cell)) {
+    unknown.erase(cell);
+    unsigned x = cell.first;
+    unsigned y = cell.second;
+
+    int dx = static_cast<int>(x) - center;
+    int dy = static_cast<int>(y) - center;
+    int dist_center_l1 = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+    int score = cell_branch_score(board, x, y);
+
+    if (score < best_score || (score == best_score && dist_center_l1 < best_dist)) {
+      best_score = score;
+      best_dist = dist_center_l1;
+      best_x = x;
+      best_y = y;
+    }
+  }
+
+  best_x = __shfl_sync(0xffffffff, best_x, 0);
+  best_y = __shfl_sync(0xffffffff, best_y, 0);
+  return {best_x, best_y};
+}
+
 template <unsigned N, unsigned W>
 __device__ void resolve_outcome_cell(const ThreeBoard<N, W> board, cuda::std::pair<unsigned, unsigned> cell, DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer) {
   {
@@ -377,8 +446,14 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   }
 
   auto [row, row_unknown] = board.most_constrained_row();
-  stats_record(StatId::RowBranches);
-  resolve_outcome_row<N, W, Axis::Horizontal>(board, row, stack);
+  if (row_unknown >= CELL_BRANCH_ROW_SCORE_THRESHOLD) {
+    auto cell = pick_best_branch_cell<N, W>(board);
+    stats_record(StatId::CellBranches);
+    resolve_outcome_cell<N, W>(board, cell, stack, solution_buffer);
+  } else {
+    stats_record(StatId::RowBranches);
+    resolve_outcome_row<N, W, Axis::Horizontal>(board, row, stack);
+  }
 }
 
 template <unsigned N, unsigned W>

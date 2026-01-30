@@ -1129,6 +1129,29 @@ _DI_ void ThreeBoard<N, W>::soft_branch_all() {
   }
 }
 
+_DI_ unsigned row_unknown_score(unsigned on_pop, unsigned unknown) {
+  constexpr unsigned kMaxUnknown = 8;
+  constexpr unsigned kOn1Penalty = 6;
+  constexpr unsigned kTable[2][kMaxUnknown + 1] = {
+    // known_on = 0 (default: choose-2 unknown pairs)
+    {0, 0, 1, 3, 6, 10, 15, 21, 28},
+    // known_on = 1
+    {0, 5, 9, 14, 20, 40, 48, 56, 64},
+  };
+
+  if (on_pop <= 1 && unknown <= kMaxUnknown) {
+    return kTable[on_pop][unknown];
+  }
+
+  if (on_pop == 0) {
+    return unknown * (unknown - 1) / 2;
+  }
+  if (on_pop == 1) {
+    return unknown * kOn1Penalty;
+  }
+  return unknown;
+}
+
 template <unsigned N, unsigned W>
 _DI_ cuda::std::pair<unsigned, unsigned>
 ThreeBoard<N, W>::most_constrained_row() const {
@@ -1138,12 +1161,8 @@ ThreeBoard<N, W>::most_constrained_row() const {
   if constexpr (W == 32) {
     BitBoard<W> known = known_on | known_off;
     unknown = N - popcount<32>(known.state);
-
-    if(known_on.state == 0) {
-      unknown = unknown * (unknown - 1) / 2;
-    } else {
-      unknown *= ROW_SINGLE_ON_PENALTY;
-    }
+    unsigned on_pop = popcount<32>(known_on.state);
+    unknown = row_unknown_score(on_pop, unknown);
 
     if ((threadIdx.x & 31) >= N || unknown == 0)
       unknown = std::numeric_limits<unsigned>::max();
@@ -1154,26 +1173,10 @@ ThreeBoard<N, W>::most_constrained_row() const {
     unsigned unknown_xy = N - popcount<32>(known.state.x) - popcount<32>(known.state.y);
     unsigned unknown_zw = N - popcount<32>(known.state.z) - popcount<32>(known.state.w);
 
-    bool on_xy_empty = (known_on.state.x == 0 && known_on.state.y == 0);
-    bool on_zw_empty = (known_on.state.z == 0 && known_on.state.w == 0);
-
-    if(on_xy_empty) {
-      unknown_xy = unknown_xy * (unknown_xy - 1) / 2;
-    } else {
-      unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
-      if (on_pop_xy == 1) {
-        unknown_xy *= ROW_SINGLE_ON_PENALTY;
-      }
-    }
-
-    if(on_zw_empty) {
-      unknown_zw = unknown_zw * (unknown_zw - 1) / 2;
-    } else {
-      unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
-      if (on_pop_zw == 1) {
-        unknown_zw *= ROW_SINGLE_ON_PENALTY;
-      }
-    }
+    unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
+    unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
+    unknown_xy = row_unknown_score(on_pop_xy, unknown_xy);
+    unknown_zw = row_unknown_score(on_pop_zw, unknown_zw);
 
     if ((threadIdx.x & 31) * 2 >= N || unknown_xy == 0)
       unknown_xy = std::numeric_limits<unsigned>::max();
