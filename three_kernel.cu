@@ -101,7 +101,6 @@ static inline void init_line_table_host_32() {
 
   std::vector<uint32_t> host_table(total_rows, 0);
 
-  auto build_start = std::chrono::steady_clock::now();
   for (unsigned py = 0; py < N; ++py) {
     for (unsigned px = 0; px < N; ++px) {
       const unsigned p_idx = py * N + px;
@@ -151,16 +150,9 @@ static inline void init_line_table_host_32() {
       }
     }
   }
-  auto build_end = std::chrono::steady_clock::now();
-
   cudaMalloc((void **)&d_line_table, total_rows * sizeof(uint32_t));
   cudaMemcpy(d_line_table, host_table.data(), total_rows * sizeof(uint32_t), cudaMemcpyHostToDevice);
   cudaMemcpyToSymbol(g_line_table_32, &d_line_table, sizeof(d_line_table));
-
-  auto upload_end = std::chrono::steady_clock::now();
-  const auto build_ms = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start).count();
-  const auto upload_ms = std::chrono::duration_cast<std::chrono::milliseconds>(upload_end - build_end).count();
-  std::cerr << "[line_table] build_ms=" << build_ms << " upload_ms=" << upload_ms << std::endl;
 }
 
 template<unsigned W>
