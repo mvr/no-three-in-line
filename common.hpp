@@ -290,8 +290,8 @@ _DI_ BinaryCount<W> count_horizontally(const board_row_t<W> value) {
 inline void init_lookup_tables_host() {
   unsigned char host_div_gcd_table[64][64];
 
-  for (unsigned i = 0; i < 64; i++) {
-    for (unsigned j = 0; j < 64; j++) {
+  for (unsigned i = 1; i < 64; i++) {
+    for (unsigned j = 1; j < 64; j++) {
       host_div_gcd_table[i][j] = i / std::gcd(i, j);
     }
   }
