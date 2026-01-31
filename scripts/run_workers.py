@@ -283,7 +283,6 @@ def main():
                         base = shard_path.name
                         if base.endswith(".out"):
                             base = base[:-4]
-                        base = base + ".txt"
                         if base not in done_job_ids:
                             continue
                     with shard_path.open("r", encoding="utf-8") as shard_file:
