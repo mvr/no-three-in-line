@@ -5,8 +5,12 @@ static_assert(N <= 64);
 
 const unsigned WARPS_PER_BLOCK = 4;
 const unsigned LAUNCH_MIN_BLOCKS = 12;
-const unsigned MAX_BATCH_SIZE = 1<<15;
-const unsigned STACK_CAPACITY = 1<<22;
+const unsigned STACK_CAPACITY = 1 << 22;
+const unsigned BATCH_MIN_SIZE = WARPS_PER_BLOCK * LAUNCH_MIN_BLOCKS;
+const unsigned BATCH_MAX_SIZE = 1 << 16;
+const unsigned BATCH_WARMUP_SIZE = 1 << 12;
+constexpr float BATCH_FEEDBACK_TARGET_RATIO = 1.2f;
+constexpr float BATCH_FEEDBACK_GAIN_RATIO = 0.2f;
 const unsigned SOLUTION_BUFFER_CAPACITY = 128;
 
 const unsigned SOFT_BRANCH_1_THRESHOLD = 2;

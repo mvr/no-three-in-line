@@ -1,4 +1,5 @@
 #include <array>
+#include <algorithm>
 #include <vector>
 #include <iostream>
 #include <chrono>
@@ -47,7 +48,11 @@ static inline void reset_search_stats() {
   cudaMemcpyToSymbol(g_search_stats, &zero, sizeof(SearchStats));
 }
 
-static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack_size) {
+static inline void print_stats_snapshot(const SearchStats &stats,
+                                        unsigned stack_size,
+                                        unsigned batch_size,
+                                        float batch_scale,
+                                        float push_ratio) {
   std::cerr << "[stats] nodes=" << stats.counters[static_cast<unsigned>(StatId::NodesVisited)]
             << " sym_force=" << stats.counters[static_cast<unsigned>(StatId::SymmetryForced)]
             << " vuln_branches=" << stats.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
@@ -58,11 +63,19 @@ static inline void print_stats_snapshot(const SearchStats &stats, unsigned stack
             << " canonical_skips=" << stats.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
             << " inconsistent=" << stats.counters[static_cast<unsigned>(StatId::InconsistentNodes)]
             << " stack_size=" << stack_size
+            << " batch_size=" << batch_size
+            << " batch_scale=" << batch_scale
+            << " push_ratio=" << push_ratio
             << " solutions=" << stats.counters[static_cast<unsigned>(StatId::Solutions)]
             << std::endl;
 }
 
-static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last_print, unsigned stack_size, bool force = false) {
+static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last_print,
+                                     unsigned stack_size,
+                                     unsigned batch_size,
+                                     float batch_scale,
+                                     float push_ratio,
+                                     bool force = false) {
   auto now = std::chrono::steady_clock::now();
   if (!force && now - last_print < std::chrono::seconds(10)) {
     return;
@@ -70,7 +83,7 @@ static inline void maybe_print_stats(std::chrono::steady_clock::time_point &last
 
   SearchStats snapshot;
   cudaMemcpyFromSymbol(&snapshot, g_search_stats, sizeof(SearchStats));
-  print_stats_snapshot(snapshot, stack_size);
+  print_stats_snapshot(snapshot, stack_size, batch_size, batch_scale, push_ratio);
   last_print = now;
 }
 #else
@@ -477,9 +490,11 @@ int solve_with_device_stack() {
 
   unsigned start_size;
   cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+  float feedback_scale = 1 / static_cast<float>(BATCH_MAX_SIZE/BATCH_WARMUP_SIZE);
 
   while (start_size > 0) {
-    unsigned batch_size = std::min(start_size, static_cast<unsigned>(MAX_BATCH_SIZE));
+    unsigned batch_size = static_cast<unsigned>(feedback_scale * static_cast<float>(BATCH_MAX_SIZE));
+    batch_size = std::clamp(batch_size, BATCH_MIN_SIZE, std::min(start_size, BATCH_MAX_SIZE));
     unsigned batch_start = start_size - batch_size;
 
     unsigned overflow_count = 0;
@@ -540,6 +555,15 @@ int solve_with_device_stack() {
     start_size = new_size - batch_size;
 
     cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
+
+    float push_ratio = static_cast<float>(pushes) / static_cast<float>(batch_size);
+
+    float adjust = 1.0f + (BATCH_FEEDBACK_GAIN_RATIO * (BATCH_FEEDBACK_TARGET_RATIO - push_ratio));
+    feedback_scale *= adjust;
+    if (had_retry) {
+      feedback_scale *= 0.5f;
+    }
+    feedback_scale = std::clamp(feedback_scale, 0.0f, 1.0f);
     
     unsigned solution_count;
     cudaMemcpy(&solution_count, &d_solution_buffer->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
@@ -555,7 +579,7 @@ int solve_with_device_stack() {
     }
 
 #if THREE_ENABLE_STATS
-    maybe_print_stats(last_stats_print, start_size);
+    maybe_print_stats(last_stats_print, start_size, batch_size, feedback_scale, push_ratio);
 #endif
   }
 
@@ -563,7 +587,7 @@ int solve_with_device_stack() {
 
 #if THREE_ENABLE_STATS
   // Print a final snapshot so the last interval isn't lost if the loop exits quickly.
-  maybe_print_stats(last_stats_print, start_size, true);
+  maybe_print_stats(last_stats_print, start_size, 1, feedback_scale, 0.0, true);
 #endif
 
   if (d_compact_tmp) {
