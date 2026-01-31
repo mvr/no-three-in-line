@@ -173,6 +173,14 @@ struct DeviceProblem {
 };
 
 template <unsigned W>
+struct FrontierBuffer {
+  Problem<W> *entries;
+  unsigned size;
+  unsigned overflow;
+  unsigned capacity;
+};
+
+template <unsigned W>
 __device__ bool stack_push(DeviceStack<W> *stack, const DeviceProblem<W> &problem) {
   unsigned old_size;
   
@@ -208,6 +216,27 @@ __device__ bool solution_buffer_push(SolutionBuffer<W> *buffer, BitBoard<W> &sol
 
   solution.save(buffer->solutions[pos].data());
 
+  return true;
+}
+
+template <unsigned W>
+__device__ bool frontier_buffer_push(FrontierBuffer<W> *buffer, const DeviceProblem<W> &problem) {
+  unsigned pos;
+  if ((threadIdx.x & 31) == 0) {
+    pos = atomicAdd(&buffer->size, 1);
+  }
+  pos = __shfl_sync(0xffffffff, pos, 0);
+
+  if (pos >= buffer->capacity) {
+    if ((threadIdx.x & 31) == 0) {
+      atomicAdd(&buffer->overflow, 1);
+    }
+    return false;
+  }
+
+  buffer->entries[pos] = Problem<W>{};
+  problem.known_on.save(buffer->entries[pos].known_on.data());
+  problem.known_off.save(buffer->entries[pos].known_off.data());
   return true;
 }
 
@@ -384,6 +413,22 @@ __global__ void initialize_stack_kernel(DeviceStack<W> *stack, SolutionBuffer<W>
 }
 
 template <unsigned N, unsigned W>
+__global__ void initialize_stack_seed_kernel(DeviceStack<W> *stack,
+                                             SolutionBuffer<W> *solution_buffer,
+                                             Problem<W> seed) {
+  ThreeBoard<N, W> board;
+  board.known_on = BitBoard<W>::load(seed.known_on.data());
+  board.known_off = BitBoard<W>::load(seed.known_off.data());
+  board.propagate();
+  if (!board.consistent()) {
+    stats_record(StatId::InconsistentNodes);
+    return;
+  }
+  DeviceProblem<W> problem = {board.known_on, board.known_off};
+  stack_push(stack, problem);
+}
+
+template <unsigned N, unsigned W>
 __launch_bounds__(32 * WARPS_PER_BLOCK, LAUNCH_MIN_BLOCKS)
 __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_buffer, unsigned batch_start, unsigned batch_size) {
   const unsigned problem_offset = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
@@ -463,7 +508,113 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
 }
 
 template <unsigned N, unsigned W>
+__launch_bounds__(32 * WARPS_PER_BLOCK, LAUNCH_MIN_BLOCKS)
+__global__ void frontier_kernel(DeviceStack<W> *stack,
+                                FrontierBuffer<W> *frontier_buffer,
+                                unsigned batch_start,
+                                unsigned batch_size,
+                                unsigned processed_base,
+                                unsigned max_steps,
+                                unsigned min_on,
+                                unsigned max_on,
+                                bool use_on_band) {
+  const unsigned problem_offset = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
+  const unsigned problem_idx = batch_start + problem_offset;
+
+  if (problem_offset >= batch_size)
+    return;
+
+  DeviceProblem<W> problem;
+  problem.known_on = BitBoard<W>::load(stack->problems[problem_idx].known_on.data());
+  problem.known_off = BitBoard<W>::load(stack->problems[problem_idx].known_off.data());
+
+  ThreeBoard<N, W> board;
+  board.known_on = problem.known_on;
+  board.known_off = problem.known_off;
+
+  if (!board.consistent()) {
+    stats_record(StatId::InconsistentNodes);
+    return;
+  }
+
+  stats_record(StatId::NodesVisited);
+
+  ForcedCell forced{};
+  LexStatus canonical = board.is_canonical_orientation_with_forced(forced);
+  if (canonical == LexStatus::Greater) {
+    stats_record(StatId::CanonicalSkips);
+    return;
+  }
+
+  const unsigned on_pop = board.known_on.pop();
+  const unsigned global_idx = processed_base + problem_offset;
+  bool emit = false;
+  if (max_steps > 0 && global_idx >= max_steps) {
+    emit = true;
+  }
+  if (use_on_band && on_pop >= min_on && on_pop <= max_on) {
+    emit = true;
+  }
+
+  if (board.complete()) {
+    frontier_buffer_push(frontier_buffer, problem);
+    return;
+  }
+
+  if (emit) {
+    frontier_buffer_push(frontier_buffer, problem);
+    return;
+  }
+
+  if (forced.has_force && on_pop <= SYM_FORCE_MAX_ON) {
+    stats_record(StatId::SymmetryForced);
+    resolve_outcome_cell<N, W>(board, forced.cell, stack, nullptr);
+    return;
+  }
+
+  BitBoard<W> vulnerable = board.vulnerable();
+  if (!vulnerable.empty()) {
+    auto cell = vulnerable.template first_center_on<N>();
+    stats_record(StatId::VulnerableBranches);
+    resolve_outcome_cell<N, W>(board, cell, stack, nullptr);
+    return;
+  }
+
+  BitBoard<W> semivulnerable = board.semivulnerable();
+  if (!semivulnerable.empty()) {
+    auto cell = semivulnerable.template first_center_on<N>();
+    stats_record(StatId::SemiVulnerableBranches);
+    resolve_outcome_cell<N, W>(board, cell, stack, nullptr);
+    return;
+  }
+
+  BitBoard<W> quasivulnerable = board.quasivulnerable();
+  if (!quasivulnerable.empty()) {
+    auto cell = quasivulnerable.template first_center_on<N>();
+    stats_record(StatId::QuasiVulnerableBranches);
+    resolve_outcome_cell<N, W>(board, cell, stack, nullptr);
+    return;
+  }
+
+  auto [row, row_unknown] = board.most_constrained_row();
+  if (row_unknown >= CELL_BRANCH_ROW_SCORE_THRESHOLD) {
+    auto cell = pick_best_branch_cell<N, W>(board);
+    stats_record(StatId::CellBranches);
+    resolve_outcome_cell<N, W>(board, cell, stack, nullptr);
+  } else {
+    stats_record(StatId::RowBranches);
+    resolve_outcome_row<N, W, Axis::Horizontal>(board, row, stack);
+  }
+}
+
+template <unsigned N, unsigned W>
 int solve_with_device_stack() {
+  return solve_with_device_stack<N, W>(nullptr, nullptr);
+}
+
+template <unsigned N, unsigned W>
+int solve_with_device_stack(const board_array_t<W> *seed_on,
+                            const board_array_t<W> *seed_off) {
   init_lookup_tables_host();
   init_relevant_endpoint_host(N);
   init_relevant_endpoint_host_64(N);
@@ -478,7 +629,14 @@ int solve_with_device_stack() {
   cudaMemset(d_stack, 0, sizeof(DeviceStack<W>));
   cudaMemset(d_solution_buffer, 0, sizeof(SolutionBuffer<W>));
 
-  initialize_stack_kernel<N, W><<<1, 32>>>(d_stack, d_solution_buffer);
+  if (seed_on && seed_off) {
+    Problem<W> seed{};
+    seed.known_on = *seed_on;
+    seed.known_off = *seed_off;
+    initialize_stack_seed_kernel<N, W><<<1, 32>>>(d_stack, d_solution_buffer, seed);
+  } else {
+    initialize_stack_kernel<N, W><<<1, 32>>>(d_stack, d_solution_buffer);
+  }
 
 #if THREE_ENABLE_STATS
   reset_search_stats();
@@ -599,5 +757,178 @@ int solve_with_device_stack() {
   return 0;
 }
 
+template <unsigned N, unsigned W>
+int solve_frontier_with_device_stack(const FrontierConfig &config,
+                                     std::ostream &out) {
+  init_lookup_tables_host();
+  init_relevant_endpoint_host(N);
+  init_relevant_endpoint_host_64(N);
+  init_line_table_host_32();
+
+  DeviceStack<W> *d_stack;
+  FrontierBuffer<W> *d_frontier;
+  Problem<W> *d_frontier_entries = nullptr;
+
+  cudaMalloc((void**) &d_stack, sizeof(DeviceStack<W>));
+  cudaMalloc((void**) &d_frontier, sizeof(FrontierBuffer<W>));
+
+  const unsigned buffer_capacity = config.buffer_capacity ? config.buffer_capacity : (BATCH_MAX_SIZE * 4);
+  cudaMalloc((void**)&d_frontier_entries, buffer_capacity * sizeof(Problem<W>));
+
+  cudaMemset(d_stack, 0, sizeof(DeviceStack<W>));
+  cudaMemset(d_frontier, 0, sizeof(FrontierBuffer<W>));
+
+  FrontierBuffer<W> host_frontier{};
+  host_frontier.entries = d_frontier_entries;
+  host_frontier.capacity = buffer_capacity;
+  cudaMemcpy(d_frontier, &host_frontier, sizeof(FrontierBuffer<W>), cudaMemcpyHostToDevice);
+
+  initialize_stack_kernel<N, W><<<1, 32>>>(d_stack, nullptr);
+
+#if THREE_ENABLE_STATS
+  reset_search_stats();
+  auto last_stats_print = std::chrono::steady_clock::now();
+#endif
+
+  Problem<W> *d_compact_tmp = nullptr;
+  size_t compact_capacity = 0;
+
+  unsigned start_size;
+  cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+  float feedback_scale = 1 / static_cast<float>(BATCH_MAX_SIZE / BATCH_WARMUP_SIZE);
+
+  unsigned processed_total = 0;
+
+  out << "N=" << N << " W=" << W << "\n";
+  if (config.use_on_band) {
+    out << "MIN_ON=" << config.min_on << " MAX_ON=" << config.max_on << "\n";
+  }
+  if (config.max_steps > 0) {
+    out << "MAX_STEPS=" << config.max_steps << "\n";
+  }
+
+  while (start_size > 0) {
+    unsigned batch_size = static_cast<unsigned>(feedback_scale * static_cast<float>(BATCH_MAX_SIZE));
+    batch_size = std::clamp(batch_size, BATCH_MIN_SIZE, std::min(start_size, BATCH_MAX_SIZE));
+    unsigned batch_start = start_size - batch_size;
+
+    unsigned overflow_count = 0;
+    bool had_retry = false;
+    while (true) {
+      cudaMemset(&d_stack->overflow, 0, sizeof(unsigned));
+      cudaMemset(&d_frontier->size, 0, sizeof(unsigned));
+      cudaMemset(&d_frontier->overflow, 0, sizeof(unsigned));
+
+      unsigned blocks = (batch_size + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
+      frontier_kernel<N, W><<<blocks, WARPS_PER_BLOCK * 32>>>(
+          d_stack,
+          d_frontier,
+          batch_start,
+          batch_size,
+          processed_total,
+          config.max_steps,
+          config.min_on,
+          config.max_on,
+          config.use_on_band);
+
+      cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
+      if (overflow_count == 0) {
+        break;
+      }
+
+      had_retry = true;
+      cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
+
+      std::cerr << "[error] stack overflow (" << overflow_count
+                << " pushes) capacity=" << STACK_CAPACITY << std::endl;;
+
+      if (batch_size <= 1) {
+        break;
+      }
+
+      batch_size = batch_size > 1 ? (batch_size / 2) : 1;
+      batch_start = start_size - batch_size;
+    }
+
+    if (overflow_count > 0 && batch_size <= 1) {
+      break;
+    }
+
+    unsigned new_size;
+    cudaMemcpy(&new_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+    unsigned pushes = new_size - start_size;
+
+    if (pushes > 0) {
+      if (pushes > batch_size) {
+        if (pushes > compact_capacity) {
+          if (d_compact_tmp) {
+            cudaFree(d_compact_tmp);
+          }
+          cudaMalloc((void **)&d_compact_tmp, pushes * sizeof(Problem<W>));
+          compact_capacity = pushes;
+        }
+        cudaMemcpy(d_compact_tmp, &d_stack->problems[start_size],
+                   pushes * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+        cudaMemcpy(&d_stack->problems[batch_start], d_compact_tmp,
+                   pushes * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+      } else {
+        cudaMemcpy(&d_stack->problems[batch_start], &d_stack->problems[start_size],
+                   pushes * sizeof(Problem<W>), cudaMemcpyDeviceToDevice);
+      }
+    }
+
+    start_size = new_size - batch_size;
+    cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
+
+    float push_ratio = static_cast<float>(pushes) / static_cast<float>(batch_size);
+    float adjust = 1.0f + (BATCH_FEEDBACK_GAIN_RATIO * (BATCH_FEEDBACK_TARGET_RATIO - push_ratio));
+    feedback_scale *= adjust;
+    if (had_retry) {
+      feedback_scale *= 0.5f;
+    }
+    feedback_scale = std::clamp(feedback_scale, 0.0f, 1.0f);
+
+    processed_total += batch_size;
+
+    unsigned frontier_count = 0;
+    unsigned frontier_overflow = 0;
+    cudaMemcpy(&frontier_count, &d_frontier->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&frontier_overflow, &d_frontier->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
+    if (frontier_overflow > 0) {
+      std::cerr << "[error] frontier buffer overflow (" << frontier_overflow
+                << " drops) capacity=" << buffer_capacity << std::endl;
+      break;
+    }
+
+    if (frontier_count > 0) {
+      std::vector<Problem<W>> frontier(frontier_count);
+      cudaMemcpy(frontier.data(), d_frontier_entries,
+                 frontier_count * sizeof(Problem<W>), cudaMemcpyDeviceToHost);
+      for (const auto &entry : frontier) {
+        out << to_rle<N, W>(entry.known_on) << "|" << to_rle<N, W>(entry.known_off) << "\n";
+      }
+      out.flush();
+    }
+
+#if THREE_ENABLE_STATS
+    maybe_print_stats(last_stats_print, start_size, batch_size, feedback_scale, push_ratio);
+#endif
+  }
+
+  cudaDeviceSynchronize();
+
+  if (d_compact_tmp) {
+    cudaFree(d_compact_tmp);
+  }
+  cudaFree(d_frontier_entries);
+  cudaFree(d_frontier);
+  cudaFree(d_stack);
+
+  return 0;
+}
+
 // Explicitly instantiate the template to the N in params.hpp, or it doesn't get compiled at all.
 template int solve_with_device_stack<N, 32>();
+// template int solve_with_device_stack<N, 64>();
+template int solve_frontier_with_device_stack<N, 32>(const FrontierConfig &, std::ostream &);
+// template int solve_frontier_with_device_stack<N, 64>(const FrontierConfig &, std::ostream &);

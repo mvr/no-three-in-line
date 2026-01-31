@@ -1,6 +1,6 @@
 #pragma once
 
-const unsigned N = 13;
+const unsigned N = 14;
 static_assert(N <= 64);
 
 const unsigned WARPS_PER_BLOCK = 4;
