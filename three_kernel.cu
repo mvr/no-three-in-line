@@ -169,6 +169,9 @@ __device__ bool stack_push(DeviceStack<W> *stack, const DeviceProblem<W> &proble
   old_size = __shfl_sync(0xffffffff, old_size, 0);
   
   if (old_size >= STACK_CAPACITY) {
+    if ((threadIdx.x & 31) == 0) {
+      atomicAdd(&stack->overflow, 1);
+    }
     return false; // Stack overflow
   }
   
@@ -479,8 +482,37 @@ int solve_with_device_stack() {
     unsigned batch_size = std::min(start_size, static_cast<unsigned>(MAX_BATCH_SIZE));
     unsigned batch_start = start_size - batch_size;
 
-    unsigned blocks = (batch_size + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
-    work_kernel<N, W><<<blocks, WARPS_PER_BLOCK * 32>>>(d_stack, d_solution_buffer, batch_start, batch_size);
+    unsigned overflow_count = 0;
+    bool had_retry = false;
+    while (true) {
+      cudaMemset(&d_stack->overflow, 0, sizeof(unsigned));
+
+      unsigned blocks = (batch_size + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
+      work_kernel<N, W><<<blocks, WARPS_PER_BLOCK * 32>>>(d_stack, d_solution_buffer, batch_start, batch_size);
+
+      cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
+      if (overflow_count == 0) {
+        break;
+      }
+
+      had_retry = true;
+      cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
+      cudaMemset(&d_solution_buffer->size, 0, sizeof(unsigned));
+
+      std::cerr << "[error] stack overflow (" << overflow_count
+                << " pushes) capacity=" << STACK_CAPACITY << std::endl;;
+
+      if (batch_size <= 1) {
+        break;
+      }
+
+      batch_size = batch_size > 1 ? (batch_size / 2) : 1;
+      batch_start = start_size - batch_size;
+    }
+
+    if (overflow_count > 0 && batch_size <= 1) {
+      break;
+    }
 
     unsigned new_size;
     cudaMemcpy(&new_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);

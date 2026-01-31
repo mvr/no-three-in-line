@@ -15,6 +15,7 @@ template <unsigned W>
 struct DeviceStack {
   Problem<W> problems[STACK_CAPACITY];
   unsigned size;
+  unsigned overflow;
 };
 
 template <unsigned W>
