@@ -548,13 +548,10 @@ __global__ void frontier_kernel(DeviceStack<W> *stack,
 
   const unsigned on_pop = board.known_on.pop();
   const unsigned global_idx = processed_base + problem_offset;
-  bool emit = false;
-  if (max_steps > 0 && global_idx >= max_steps) {
-    emit = true;
-  }
-  if (use_on_band && on_pop >= min_on && on_pop <= max_on) {
-    emit = true;
-  }
+  const bool reached_steps = max_steps > 0 && global_idx >= max_steps;
+  const bool above_min = !use_on_band || (on_pop >= min_on);
+  const bool in_band = !use_on_band || (on_pop <= max_on);
+  bool emit = above_min && ((use_on_band && in_band) || reached_steps);
 
   if (board.complete()) {
     frontier_buffer_push(frontier_buffer, problem);
