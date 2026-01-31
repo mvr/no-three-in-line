@@ -20,8 +20,7 @@ static_assert(LINE_TABLE_ROWS <= 32);
 
 constexpr unsigned DEFAULT_SEED_ROW = 0;
 
-// Symmetry-forced cell thresholds
-constexpr unsigned SYM_FORCE_MIN_ON = 0;
+// Symmetry-forced cell threshold
 constexpr unsigned SYM_FORCE_MAX_ON = N - 2; // Empirically best at N=12,13
 
 constexpr unsigned CELL_BRANCH_ROW_SCORE_THRESHOLD = 30;

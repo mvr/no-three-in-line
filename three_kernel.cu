@@ -29,11 +29,9 @@ enum class StatId : unsigned {
   Count
 };
 
-constexpr unsigned kStatCount = static_cast<unsigned>(StatId::Count);
-
 #if THREE_ENABLE_STATS
 struct SearchStats {
-  unsigned long long counters[kStatCount];
+  unsigned long long counters[static_cast<unsigned>(StatId::Count)];
 };
 
 __device__ SearchStats g_search_stats;
@@ -407,7 +405,7 @@ __global__ void work_kernel(DeviceStack<W> *stack, SolutionBuffer<W> *solution_b
   }
 
   const unsigned on_pop = board.known_on.pop();
-  if (forced.has_force && on_pop >= SYM_FORCE_MIN_ON && on_pop <= SYM_FORCE_MAX_ON) {
+  if (forced.has_force && on_pop <= SYM_FORCE_MAX_ON) {
     stats_record(StatId::SymmetryForced);
     resolve_outcome_cell<N, W>(board, forced.cell, stack, solution_buffer);
     return;
