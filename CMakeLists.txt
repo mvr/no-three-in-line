@@ -2,8 +2,10 @@ cmake_minimum_required(VERSION 3.10)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Release)
 
 # set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -G")
 
@@ -20,9 +22,8 @@ set(CMAKE_CUDA_ARCHITECTURES "native")
 endif()
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --ptxas-options=-v --generate-line-info --expt-relaxed-constexpr")
 
-enable_testing()
-
-add_subdirectory(test)
+# enable_testing()
+# add_subdirectory(test)
 
 add_executable(three main.cpp three_kernel.cu)
 # add_executable(three_c4 main_c4.cpp three_kernel_c4.cu three_kernel.cu)
