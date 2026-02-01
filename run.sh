@@ -14,6 +14,11 @@ FRONTIER_BIN="${FRONTIER_BIN:-/app/three_frontier}"
 STATS_INTERVAL="${STATS_INTERVAL:-60}"
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 REQUEUE_RUNNING="${REQUEUE_RUNNING:-1}"
+
+if [[ "${IDLE_FOREVER:-0}" == "1" ]]; then
+  echo "[run.sh] IDLE_FOREVER=1; sleeping indefinitely."
+  sleep infinity
+fi
 if [[ -n "${GRID_N:-}" ]]; then
   cmake -S /app -B /app/build -DTHREE_N="${GRID_N}"
   cmake --build /app/build --target three three_frontier -j"$(nproc)"
