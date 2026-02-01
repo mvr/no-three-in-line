@@ -8,15 +8,13 @@ fi
 
 cd /app
 
-QUEUE_DIR="${QUEUE_DIR:-/workspace/queue-${N:-default}}"
+QUEUE_DIR="${QUEUE_DIR:-/workspace/queue-${GRID_N:-default}}"
 THREE_BIN="${THREE_BIN:-/app/three}"
 FRONTIER_BIN="${FRONTIER_BIN:-/app/three_frontier}"
 STATS_INTERVAL="${STATS_INTERVAL:-60}"
 POLL_INTERVAL="${POLL_INTERVAL:-5}"
 REQUEUE_RUNNING="${REQUEUE_RUNNING:-1}"
-GRID_N="${N:-}"
-
-if [[ -n "${GRID_N}" ]]; then
+if [[ -n "${GRID_N:-}" ]]; then
   cmake -S /app -B /app/build -DTHREE_N="${GRID_N}"
   cmake --build /app/build --target three three_frontier -j"$(nproc)"
   cp /app/build/three /app/three
@@ -40,10 +38,10 @@ failed_count="$(count_dir "${QUEUE_DIR}/failed")"/
 if [[ "${SKIP_SHARD_GEN:-0}" != "1" ]]; then
   if [[ "$pending_count" -eq 0 && "$running_count" -eq 0 && "$done_count" -eq 0 && "$failed_count" -eq 0 ]]; then
     args=(--frontier-bin "$FRONTIER_BIN" --queue-dir "$QUEUE_DIR")
-    if [[ -n "${MIN_ON:-}" ]]; then args+=(--min-on "$MIN_ON"); fi
-    if [[ -n "${MAX_ON:-}" ]]; then args+=(--max-on "$MAX_ON"); fi
-    if [[ -n "${STEPS:-}" ]]; then args+=(--steps "$STEPS"); fi
-    if [[ -n "${TARGET_SHARDS:-}" ]]; then args+=(--target-shards "$TARGET_SHARDS"); fi
+    if [[ -n "${SHARDS_MIN_ON:-}" ]]; then args+=(--min-on "$SHARDS_MIN_ON"); fi
+    if [[ -n "${SHARDS_MAX_ON:-}" ]]; then args+=(--max-on "$SHARDS_MAX_ON"); fi
+    if [[ -n "${SHARDS_STEPS:-}" ]]; then args+=(--steps "$SHARDS_STEPS"); fi
+    if [[ -n "${SHARDS_TARGET:-}" ]]; then args+=(--target-shards "$SHARDS_TARGET"); fi
     scripts/generate_shards.py "${args[@]}"
   fi
 fi
