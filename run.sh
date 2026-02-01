@@ -52,4 +52,18 @@ if [[ "$REQUEUE_RUNNING" == "1" ]]; then
   cmd+=(--requeue-running)
 fi
 
-exec "${cmd[@]}"
+"${cmd[@]}"
+rc=$?
+
+if command -v runpodctl >/dev/null 2>&1; then
+  if [[ -n "${RUNPOD_POD_ID:-}" ]]; then
+    echo "[run.sh] stopping pod ${RUNPOD_POD_ID}"
+    runpodctl stop pod "${RUNPOD_POD_ID}"
+  else
+    echo "[run.sh] RUNPOD_POD_ID not set; cannot stop pod"
+  fi
+else
+  echo "[run.sh] runpodctl not found; cannot stop pod"
+fi
+
+exit $rc
