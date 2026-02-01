@@ -27,13 +27,13 @@ count_dir() {
     echo 0
     return
   fi
-  ls -A "$dir" 2>/dev/null | wc -l
+  find "$dir" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d '[:space:]'
 }
 
 pending_count="$(count_dir "${QUEUE_DIR}/pending")"
 running_count="$(count_dir "${QUEUE_DIR}/running")"
 done_count="$(count_dir "${QUEUE_DIR}/done")"
-failed_count="$(count_dir "${QUEUE_DIR}/failed")"/
+failed_count="$(count_dir "${QUEUE_DIR}/failed")"
 
 if [[ "${SKIP_SHARD_GEN:-0}" != "1" ]]; then
   if [[ "$pending_count" -eq 0 && "$running_count" -eq 0 && "$done_count" -eq 0 && "$failed_count" -eq 0 ]]; then
