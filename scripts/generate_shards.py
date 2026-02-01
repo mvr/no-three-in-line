@@ -52,22 +52,20 @@ def init_db(db_path: Path):
     return conn
 
 
-def run_frontier(frontier_bin: str, out_path: Path, min_on, max_on, steps):
+def run_frontier(frontier_bin: str, out_path: Path, min_on, steps):
     cmd = [frontier_bin, "--steps", str(steps), "--out", str(out_path)]
     if min_on is not None:
         cmd += ["--min-on", str(min_on)]
-    if max_on is not None:
-        cmd += ["--max-on", str(max_on)]
     print(f"[frontier] running: {' '.join(cmd)}")
     res = subprocess.run(cmd)
     if res.returncode != 0:
         raise RuntimeError(f"frontier failed (exit {res.returncode})")
 
 
-def tune_frontier(frontier_bin: str, out_path: Path, min_on, max_on, steps, target, tolerance, max_iters):
+def tune_frontier(frontier_bin: str, out_path: Path, min_on, steps, target, tolerance, max_iters):
     steps = max(1, steps)
     for _ in range(max_iters):
-        run_frontier(frontier_bin, out_path, min_on, max_on, steps)
+        run_frontier(frontier_bin, out_path, min_on, steps)
         shards = parse_shard_file(out_path)
         count = len(shards)
         print(f"[frontier] steps={steps} shards={count}")
@@ -91,7 +89,6 @@ def main():
     parser.add_argument("--shards-file", default=None, help="Use an existing shard list instead of running frontier")
     parser.add_argument("--out", default="shards.txt", help="Output shard list path (when generating)")
     parser.add_argument("--min-on", type=int, default=None)
-    parser.add_argument("--max-on", type=int, default=None)
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--target-shards", type=int, default=None)
     parser.add_argument("--tolerance", type=float, default=0.1)
@@ -114,7 +111,6 @@ def main():
             args.frontier_bin,
             shard_path,
             args.min_on,
-            args.max_on,
             args.steps,
             args.target_shards,
             args.tolerance,

@@ -25,22 +25,12 @@ int main(int argc, char **argv) {
 
     if (arg == "--min-on") {
       if (!consume_uint("--min-on", config.min_on)) return 1;
-      config.use_on_band = true;
+      config.use_min_on = true;
       continue;
     }
     if (arg.rfind("--min-on=", 0) == 0) {
       config.min_on = static_cast<unsigned>(std::stoul(arg.substr(9)));
-      config.use_on_band = true;
-      continue;
-    }
-    if (arg == "--max-on") {
-      if (!consume_uint("--max-on", config.max_on)) return 1;
-      config.use_on_band = true;
-      continue;
-    }
-    if (arg.rfind("--max-on=", 0) == 0) {
-      config.max_on = static_cast<unsigned>(std::stoul(arg.substr(9)));
-      config.use_on_band = true;
+      config.use_min_on = true;
       continue;
     }
     if (arg == "--steps") {
@@ -84,7 +74,7 @@ int main(int argc, char **argv) {
       continue;
     }
     if (arg == "--help" || arg == "-h") {
-      std::cerr << "Usage: three_frontier [--min-on N] [--max-on N] [--steps N] "
+      std::cerr << "Usage: three_frontier [--min-on N] [--steps N] "
                    "[--buffer-cap N] [--out path] [--gpu N]\n";
       return 0;
     }
@@ -100,10 +90,6 @@ int main(int argc, char **argv) {
                 << cudaGetErrorString(err) << "\n";
       return 1;
     }
-  }
-
-  if (config.use_on_band && config.max_on == 0) {
-    config.max_on = N * N;
   }
 
   if (out_path.empty()) {

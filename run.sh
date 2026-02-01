@@ -30,7 +30,6 @@ if [[ "${SKIP_SHARD_GEN:-0}" != "1" ]]; then
   if [[ ! -f "${QUEUE_DIR}/queue.db" ]]; then
     args=(--frontier-bin "$FRONTIER_BIN" --queue-dir "$QUEUE_DIR")
     if [[ -n "${SHARDS_MIN_ON:-}" ]]; then args+=(--min-on "$SHARDS_MIN_ON"); fi
-    if [[ -n "${SHARDS_MAX_ON:-}" ]]; then args+=(--max-on "$SHARDS_MAX_ON"); fi
     if [[ -n "${SHARDS_STEPS:-}" ]]; then args+=(--steps "$SHARDS_STEPS"); fi
     if [[ -n "${SHARDS_TARGET:-}" ]]; then args+=(--target-shards "$SHARDS_TARGET"); fi
     python3 -u scripts/generate_shards.py "${args[@]}"

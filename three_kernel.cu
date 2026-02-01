@@ -516,8 +516,7 @@ __global__ void frontier_kernel(DeviceStack<W> *stack,
                                 unsigned processed_base,
                                 unsigned max_steps,
                                 unsigned min_on,
-                                unsigned max_on,
-                                bool use_on_band) {
+                                bool use_min_on) {
   const unsigned problem_offset = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
   const unsigned problem_idx = batch_start + problem_offset;
 
@@ -549,9 +548,8 @@ __global__ void frontier_kernel(DeviceStack<W> *stack,
   const unsigned on_pop = board.known_on.pop();
   const unsigned global_idx = processed_base + problem_offset;
   const bool reached_steps = max_steps > 0 && global_idx >= max_steps;
-  const bool above_min = !use_on_band || (on_pop >= min_on);
-  const bool in_band = !use_on_band || (on_pop <= max_on);
-  bool emit = above_min && ((use_on_band && in_band) || reached_steps);
+  const bool above_min = !use_min_on || (on_pop >= min_on);
+  bool emit = above_min && reached_steps;
 
   if (board.complete()) {
     frontier_buffer_push(frontier_buffer, problem);
@@ -797,8 +795,8 @@ int solve_frontier_with_device_stack(const FrontierConfig &config,
   unsigned processed_total = 0;
 
   out << "N=" << N << " W=" << W << "\n";
-  if (config.use_on_band) {
-    out << "MIN_ON=" << config.min_on << " MAX_ON=" << config.max_on << "\n";
+  if (config.use_min_on) {
+    out << "MIN_ON=" << config.min_on << "\n";
   }
   if (config.max_steps > 0) {
     out << "MAX_STEPS=" << config.max_steps << "\n";
@@ -825,8 +823,7 @@ int solve_frontier_with_device_stack(const FrontierConfig &config,
           processed_total,
           config.max_steps,
           config.min_on,
-          config.max_on,
-          config.use_on_band);
+          config.use_min_on);
 
       cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
       if (overflow_count == 0) {

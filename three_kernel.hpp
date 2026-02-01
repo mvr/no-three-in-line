@@ -33,10 +33,9 @@ int solve_with_device_stack(const board_array_t<W> *seed_on,
 
 struct FrontierConfig {
   unsigned min_on = 0;
-  unsigned max_on = 0;
   unsigned max_steps = 0;
   unsigned buffer_capacity = 0;
-  bool use_on_band = false;
+  bool use_min_on = false;
 };
 
 template <unsigned N, unsigned W>
