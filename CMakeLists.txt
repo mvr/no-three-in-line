@@ -22,6 +22,11 @@ set(CMAKE_CUDA_ARCHITECTURES "native")
 endif()
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --ptxas-options=-v --generate-line-info --expt-relaxed-constexpr")
 
+# Allow overriding N via -DTHREE_N=19 in the cmake configure step.
+if(DEFINED THREE_N)
+  add_compile_definitions(THREE_N=${THREE_N})
+endif()
+
 # enable_testing()
 # add_subdirectory(test)
 

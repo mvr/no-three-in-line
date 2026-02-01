@@ -1,6 +1,10 @@
 #pragma once
 
-const unsigned N = 14;
+#ifdef THREE_N
+const unsigned N = THREE_N;
+#else
+const unsigned N = 18;
+#endif
 static_assert(N <= 64);
 
 const unsigned WARPS_PER_BLOCK = 4;
