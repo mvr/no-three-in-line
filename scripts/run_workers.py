@@ -8,18 +8,20 @@ import time
 from pathlib import Path
 
 
-def parse_gpu_list(value: str):
-    parts = [p.strip() for p in value.split(",") if p.strip()]
-    gpus = []
-    for part in parts:
-        if "-" in part:
-            start_s, end_s = part.split("-", 1)
-            start = int(start_s)
-            end = int(end_s)
-            gpus.extend(range(start, end + 1))
-        else:
-            gpus.append(int(part))
-    return gpus
+def detect_gpus():
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if visible:
+        # Remapped to 0..N-1 inside the process.
+        entries = [v for v in visible.split(",") if v.strip()]
+        return list(range(len(entries)))
+    try:
+        output = subprocess.check_output(["nvidia-smi", "-L"], text=True)
+        count = len([line for line in output.splitlines() if line.strip().startswith("GPU")])
+        if count > 0:
+            return list(range(count))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return [0]
 
 
 def format_eta(seconds: float) -> str:
@@ -164,7 +166,6 @@ def main():
     parser = argparse.ArgumentParser(description="Run multiple worker processes on one machine.")
     parser.add_argument("--three", default="./three", help="Path to solver executable")
     parser.add_argument("--queue-dir", default="queue", help="Queue directory root")
-    parser.add_argument("--gpus", default="0", help="GPU list, e.g. '0,1,2' or '0-3'")
     # One worker per GPU; no --once mode.
     # Workers are always respawned if they exit unexpectedly.
     parser.add_argument("--poll-interval", type=float, default=5.0, help="Worker poll interval seconds")
@@ -184,7 +185,7 @@ def main():
         worker_loop(args)
         return 0
 
-    gpus = parse_gpu_list(args.gpus)
+    gpus = detect_gpus()
     if not gpus:
         print("[error] no GPUs specified", file=sys.stderr)
         return 1
