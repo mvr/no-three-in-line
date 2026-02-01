@@ -26,22 +26,8 @@ if [[ -n "${GRID_N:-}" ]]; then
   cp /app/build/three_frontier /app/three_frontier
 fi
 
-count_dir() {
-  local dir="$1"
-  if [[ ! -d "$dir" ]]; then
-    echo 0
-    return
-  fi
-  find "$dir" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d '[:space:]'
-}
-
-pending_count="$(count_dir "${QUEUE_DIR}/pending")"
-running_count="$(count_dir "${QUEUE_DIR}/running")"
-done_count="$(count_dir "${QUEUE_DIR}/done")"
-failed_count="$(count_dir "${QUEUE_DIR}/failed")"
-
 if [[ "${SKIP_SHARD_GEN:-0}" != "1" ]]; then
-  if [[ "$pending_count" -eq 0 && "$running_count" -eq 0 && "$done_count" -eq 0 && "$failed_count" -eq 0 ]]; then
+  if [[ ! -f "${QUEUE_DIR}/queue.db" ]]; then
     args=(--frontier-bin "$FRONTIER_BIN" --queue-dir "$QUEUE_DIR")
     if [[ -n "${SHARDS_MIN_ON:-}" ]]; then args+=(--min-on "$SHARDS_MIN_ON"); fi
     if [[ -n "${SHARDS_MAX_ON:-}" ]]; then args+=(--max-on "$SHARDS_MAX_ON"); fi
@@ -53,9 +39,6 @@ fi
 
 cmd=(python3 -u scripts/run_workers.py --three "$THREE_BIN" --queue-dir "$QUEUE_DIR" \
      --stats-interval "$STATS_INTERVAL" --poll-interval "$POLL_INTERVAL")
-if [[ "$REQUEUE_RUNNING" == "1" ]]; then
-  cmd+=(--requeue-running)
-fi
 
 "${cmd[@]}"
 rc=$?

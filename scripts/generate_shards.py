@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
 
 def parse_shard_file(path: Path):
-    header = []
     shards = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -15,23 +15,41 @@ def parse_shard_file(path: Path):
                 continue
             if "|" in stripped:
                 shards.append(stripped)
-            else:
-                header.append(stripped)
-    return header, shards
+    return shards
 
 
-def write_jobs(header, shards, queue_dir: Path):
-    pending_dir = queue_dir / "pending"
-    pending_dir.mkdir(parents=True, exist_ok=True)
-    job_id = 0
-    for line in shards:
-        job_id += 1
-        job_path = pending_dir / f"job_{job_id:06d}.txt"
-        with job_path.open("w", encoding="utf-8") as f:
-            for h in header:
-                f.write(h + "\n")
-            f.write(line + "\n")
-    return job_id
+def init_db(db_path: Path):
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS shards (
+          id INTEGER PRIMARY KEY,
+          on_rle TEXT NOT NULL,
+          off_rle TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          claimed_by TEXT,
+          claimed_at REAL,
+          started_at REAL,
+          finished_at REAL,
+          rc INTEGER,
+          duration REAL,
+          log_tail TEXT
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_shards_status ON shards(status);")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS solutions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          shard_id INTEGER NOT NULL,
+          rle TEXT NOT NULL
+        );
+        """
+    )
+    return conn
 
 
 def run_frontier(frontier_bin: str, out_path: Path, min_on, max_on, steps):
@@ -50,7 +68,7 @@ def tune_frontier(frontier_bin: str, out_path: Path, min_on, max_on, steps, targ
     steps = max(1, steps)
     for _ in range(max_iters):
         run_frontier(frontier_bin, out_path, min_on, max_on, steps)
-        _, shards = parse_shard_file(out_path)
+        shards = parse_shard_file(out_path)
         count = len(shards)
         print(f"[frontier] steps={steps} shards={count}")
         if target is None or count == 0:
@@ -78,14 +96,12 @@ def main():
     parser.add_argument("--target-shards", type=int, default=None)
     parser.add_argument("--tolerance", type=float, default=0.1)
     parser.add_argument("--max-iters", type=int, default=10)
+    parser.add_argument("--overwrite", action="store_true", help="Clear existing shard DB before writing")
     args = parser.parse_args()
 
     queue_dir = Path(args.queue_dir)
     queue_dir.mkdir(parents=True, exist_ok=True)
-    (queue_dir / "pending").mkdir(exist_ok=True)
-    (queue_dir / "running").mkdir(exist_ok=True)
-    (queue_dir / "done").mkdir(exist_ok=True)
-    (queue_dir / "failed").mkdir(exist_ok=True)
+    db_path = queue_dir / "queue.db"
 
     if args.shards_file:
         shard_path = Path(args.shards_file)
@@ -106,13 +122,29 @@ def main():
         )
         print(f"[frontier] final steps={steps} shards={count}")
 
-    header, shards = parse_shard_file(shard_path)
+    shards = parse_shard_file(shard_path)
     if not shards:
         print("[error] no shards found to enqueue", file=sys.stderr)
         return 1
 
-    total_jobs = write_jobs(header, shards, queue_dir)
-    print(f"[queue] wrote {len(shards)} shards into {total_jobs} jobs at {queue_dir / 'pending'}")
+    conn = init_db(db_path)
+    if args.overwrite:
+        conn.execute("DELETE FROM solutions;")
+        conn.execute("DELETE FROM shards;")
+    else:
+        existing = conn.execute("SELECT COUNT(*) FROM shards;").fetchone()[0]
+        if existing > 0:
+            print(f"[error] queue already has {existing} shards (use --overwrite to replace)", file=sys.stderr)
+            conn.close()
+            return 1
+    rows = []
+    for line in shards:
+        on_rle, off_rle = line.split("|", 1)
+        rows.append((on_rle, off_rle))
+    conn.executemany("INSERT INTO shards (on_rle, off_rle) VALUES (?, ?);", rows)
+    conn.commit()
+    conn.close()
+    print(f"[queue] wrote {len(shards)} shards into {db_path}")
     return 0
 
 

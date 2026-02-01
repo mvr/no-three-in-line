@@ -6,6 +6,7 @@ RUN apt-get update --yes && \
     DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
       cmake \
       build-essential \
+      sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /app
