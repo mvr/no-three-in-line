@@ -260,7 +260,7 @@ def main():
                     eta = format_eta(eta_seconds)
                     avg_shard = f"{avg:.1f}s"
                 print(f"[queue] pending={pending} running={running} done={done} failed={failed} total={total} "
-                      f"avg_shard={avg_shard} eta={eta}")
+                      f"avg_shard={avg_shard} eta={eta}", flush=True)
                 last_stats = now
 
         pending = len(list(pending_dir.glob("*.txt")))
@@ -297,7 +297,7 @@ def main():
             update_shard_times(shard_times_path, stats_state)
             elapsed = stats_state["total_seconds"]
             done = len(list(done_dir.glob("*.txt")))
-            print(f"[queue] done shards={done} solutions={solutions_count} elapsed={format_eta(elapsed)}")
+            print(f"[queue] done shards={done} solutions={solutions_count} elapsed={format_eta(elapsed)}", flush=True)
             return 0
 
         if not procs:
