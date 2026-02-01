@@ -42,11 +42,11 @@ if [[ "${SKIP_SHARD_GEN:-0}" != "1" ]]; then
     if [[ -n "${SHARDS_MAX_ON:-}" ]]; then args+=(--max-on "$SHARDS_MAX_ON"); fi
     if [[ -n "${SHARDS_STEPS:-}" ]]; then args+=(--steps "$SHARDS_STEPS"); fi
     if [[ -n "${SHARDS_TARGET:-}" ]]; then args+=(--target-shards "$SHARDS_TARGET"); fi
-    scripts/generate_shards.py "${args[@]}"
+    python3 scripts/generate_shards.py "${args[@]}"
   fi
 fi
 
-cmd=(scripts/run_workers.py --three "$THREE_BIN" --queue-dir "$QUEUE_DIR" \
+cmd=(python3 scripts/run_workers.py --three "$THREE_BIN" --queue-dir "$QUEUE_DIR" \
      --stats-interval "$STATS_INTERVAL" --poll-interval "$POLL_INTERVAL")
 if [[ "$REQUEUE_RUNNING" == "1" ]]; then
   cmd+=(--requeue-running)
