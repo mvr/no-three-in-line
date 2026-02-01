@@ -52,9 +52,13 @@ def claim_shard(conn: sqlite3.Connection, worker_id: str):
     shard_id = row[0]
     now = time.time()
     cur.execute(
-        "UPDATE shards SET status='running', claimed_by=?, claimed_at=?, started_at=? WHERE id=?;",
+        "UPDATE shards SET status='running', claimed_by=?, claimed_at=?, started_at=? "
+        "WHERE id=? AND status='pending';",
         (worker_id, now, now, shard_id),
     )
+    if cur.rowcount == 0:
+        conn.execute("ROLLBACK;")
+        return None
     conn.commit()
     return row
 
@@ -103,10 +107,6 @@ def worker_loop(args):
     conn = sqlite3.connect(db_path, timeout=5, isolation_level=None)
     conn.execute("PRAGMA busy_timeout=5000;")
     worker_id = f"{socket.gethostname()}:{os.getpid()}:{args.gpu}"
-
-    if not args.no_requeue_running:
-        conn.execute("UPDATE shards SET status='pending', claimed_by=NULL, claimed_at=NULL, started_at=NULL WHERE status='running';")
-        conn.commit()
 
     while True:
         row = claim_shard(conn, worker_id)
