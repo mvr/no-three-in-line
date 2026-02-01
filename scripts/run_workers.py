@@ -256,7 +256,10 @@ def main():
                 if stats_state["total_shards"] > 0:
                     remaining_shards = pending + running
                     avg = stats_state["total_seconds"] / stats_state["total_shards"]
-                    eta_seconds = remaining_shards * avg
+                    worker_count = len(gpus)
+                    if worker_count <= 0:
+                        worker_count = 1
+                    eta_seconds = (remaining_shards * avg) / worker_count
                     eta = format_eta(eta_seconds)
                     avg_shard = f"{avg:.1f}s"
                 print(f"[queue] pending={pending} running={running} done={done} failed={failed} total={total} "
