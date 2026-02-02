@@ -31,7 +31,7 @@ constexpr unsigned DEFAULT_SEED_ROW = 0;
 // Symmetry-forced cell threshold
 constexpr unsigned SYM_FORCE_MAX_ON = N - 2; // Empirically best at N=12,13
 
-constexpr unsigned CELL_BRANCH_ROW_SCORE_THRESHOLD = 30;
+constexpr unsigned CELL_BRANCH_ROW_SCORE_THRESHOLD = 20;
 constexpr int CELL_BRANCH_W_COL_UNKNOWN = 3;
 constexpr int CELL_BRANCH_W_ROW_UNKNOWN = 4;
 constexpr int CELL_BRANCH_W_COL_ON = 3;
