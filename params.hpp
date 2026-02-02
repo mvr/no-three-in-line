@@ -9,7 +9,7 @@ static_assert(N <= 64);
 
 const unsigned WARPS_PER_BLOCK = 4;
 const unsigned LAUNCH_MIN_BLOCKS = 12;
-const unsigned STACK_CAPACITY = 1 << 22;
+const unsigned STACK_CAPACITY = 1 << 23;
 const unsigned BATCH_MIN_SIZE = WARPS_PER_BLOCK * LAUNCH_MIN_BLOCKS;
 const unsigned BATCH_MAX_SIZE = 1 << 16;
 const unsigned BATCH_WARMUP_SIZE = 1 << 12;
