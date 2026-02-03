@@ -19,6 +19,7 @@ if [[ "${IDLE_FOREVER:-0}" == "1" ]]; then
   echo "[run.sh] IDLE_FOREVER=1; sleeping indefinitely."
   sleep infinity
 fi
+
 if [[ -n "${GRID_N:-}" ]]; then
   cmake -S /app -B /app/build -DTHREE_N="${GRID_N}"
   cmake --build /app/build --target three three_frontier -j"$(nproc)"
