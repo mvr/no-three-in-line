@@ -13,16 +13,18 @@ struct Problem {
 };
 
 template <unsigned W>
+struct OutputBuffer {
+  Problem<W> *entries;
+  unsigned size;
+  unsigned overflow;
+  unsigned capacity;
+};
+
+template <unsigned W>
 struct DeviceStack {
   Problem<W> problems[STACK_CAPACITY];
   unsigned size;
   unsigned overflow;
-};
-
-template <unsigned W>
-struct SolutionBuffer {
-  board_array_t<W> solutions[SOLUTION_BUFFER_CAPACITY];
-  unsigned size;
 };
 
 template <unsigned N, unsigned W>
@@ -39,8 +41,7 @@ struct FrontierConfig {
 };
 
 template <unsigned N, unsigned W>
-int solve_frontier_with_device_stack(const FrontierConfig &config,
-                                     std::ostream &out);
+int solve_with_device_stack(const FrontierConfig &config);
 
 void init_lookup_tables_host();
 void init_relevant_endpoint_host(unsigned n);

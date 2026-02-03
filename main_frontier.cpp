@@ -2,13 +2,11 @@
 #include "params.hpp"
 
 #include <cuda_runtime_api.h>
-#include <fstream>
 #include <iostream>
 #include <string>
 
 int main(int argc, char **argv) {
   FrontierConfig config{};
-  std::string out_path;
   int gpu = -1;
 
   for (int i = 1; i < argc; ++i) {
@@ -49,18 +47,6 @@ int main(int argc, char **argv) {
       config.buffer_capacity = static_cast<unsigned>(std::stoul(arg.substr(13)));
       continue;
     }
-    if (arg == "--out") {
-      if (i + 1 >= argc) {
-        std::cerr << "Missing value for --out\n";
-        return 1;
-      }
-      out_path = argv[++i];
-      continue;
-    }
-    if (arg.rfind("--out=", 0) == 0) {
-      out_path = arg.substr(6);
-      continue;
-    }
     if (arg == "--gpu") {
       if (i + 1 >= argc) {
         std::cerr << "Missing value for --gpu\n";
@@ -75,7 +61,7 @@ int main(int argc, char **argv) {
     }
     if (arg == "--help" || arg == "-h") {
       std::cerr << "Usage: three_frontier [--min-on N] [--steps N] "
-                   "[--buffer-cap N] [--out path] [--gpu N]\n";
+                   "[--buffer-cap N] [--gpu N]\n";
       return 0;
     }
 
@@ -92,20 +78,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (out_path.empty()) {
-    if (N > 32) {
-      return solve_frontier_with_device_stack<N, 64>(config, std::cout);
-    }
-    return solve_frontier_with_device_stack<N, 32>(config, std::cout);
-  }
-
-  std::ofstream out(out_path);
-  if (!out) {
-    std::cerr << "Failed to open output file: " << out_path << "\n";
-    return 1;
-  }
   if (N > 32) {
-    return solve_frontier_with_device_stack<N, 64>(config, out);
+    return solve_with_device_stack<N, 64>(config);
   }
-  return solve_frontier_with_device_stack<N, 32>(config, out);
+  return solve_with_device_stack<N, 32>(config);
 }

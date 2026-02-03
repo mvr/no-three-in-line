@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import sqlite3
 import subprocess
 import sys
@@ -52,20 +53,61 @@ def init_db(db_path: Path):
     return conn
 
 
-def run_frontier(frontier_bin: str, out_path: Path, min_on, steps):
-    cmd = [frontier_bin, "--steps", str(steps), "--out", str(out_path)]
+def run_frontier(frontier_bin: str, out_path: Path, min_on, steps, grid_n):
+    cmd = [frontier_bin, "--steps", str(steps)]
     if min_on is not None:
         cmd += ["--min-on", str(min_on)]
-    print(f"[frontier] running: {' '.join(cmd)}")
-    res = subprocess.run(cmd)
+    print(f"[frontier] running: {' '.join(cmd)} > {out_path}")
+    with out_path.open("w", encoding="utf-8") as f:
+        if grid_n is not None:
+            f.write(f"N={grid_n}\n")
+            width = 64 if grid_n > 32 else 32
+            f.write(f"W={width}\n")
+        if min_on is not None:
+            f.write(f"MIN_ON={min_on}\n")
+        if steps is not None:
+            f.write(f"MAX_STEPS={steps}\n")
+        res = subprocess.run(cmd, stdout=f)
     if res.returncode != 0:
         raise RuntimeError(f"frontier failed (exit {res.returncode})")
 
+def detect_grid_size(explicit: int | None, params_path: Path) -> int | None:
+    if explicit is not None:
+        return explicit
+    env_n = _read_env_int("GRID_N")
+    if env_n is not None:
+        return env_n
+    try:
+        text = params_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("const unsigned N"):
+            parts = line.split("=")
+            if len(parts) >= 2:
+                value = parts[1].split(";")[0].strip()
+                try:
+                    return int(value)
+                except ValueError:
+                    return None
+    return None
 
-def tune_frontier(frontier_bin: str, out_path: Path, min_on, steps, target, tolerance, max_iters):
+
+def _read_env_int(name: str) -> int | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def tune_frontier(frontier_bin: str, out_path: Path, min_on, steps, target, tolerance, max_iters, grid_n):
     steps = max(1, steps)
     for _ in range(max_iters):
-        run_frontier(frontier_bin, out_path, min_on, steps)
+        run_frontier(frontier_bin, out_path, min_on, steps, grid_n)
         shards = parse_shard_file(out_path)
         count = len(shards)
         print(f"[frontier] steps={steps} shards={count}")
@@ -87,12 +129,14 @@ def main():
                         help="Path to the frontier executable")
     parser.add_argument("--queue-dir", default="queue", help="Queue directory root")
     parser.add_argument("--shards-file", default=None, help="Use an existing shard list instead of running frontier")
-    parser.add_argument("--out", default="shards.txt", help="Output shard list path (when generating)")
+    parser.add_argument("--out", default="shards.txt",
+                        help="Output shard list path (captured from frontier stdout)")
     parser.add_argument("--min-on", type=int, default=None)
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--target-shards", type=int, default=None)
     parser.add_argument("--tolerance", type=float, default=0.1)
     parser.add_argument("--max-iters", type=int, default=10)
+    parser.add_argument("--grid-n", type=int, default=None, help="Override grid size for header")
     parser.add_argument("--overwrite", action="store_true", help="Clear existing shard DB before writing")
     args = parser.parse_args()
 
@@ -107,6 +151,7 @@ def main():
             return 1
     else:
         shard_path = Path(args.out)
+        grid_n = detect_grid_size(args.grid_n, Path("params.hpp"))
         steps, count = tune_frontier(
             args.frontier_bin,
             shard_path,
@@ -115,6 +160,7 @@ def main():
             args.target_shards,
             args.tolerance,
             args.max_iters,
+            grid_n,
         )
         print(f"[frontier] final steps={steps} shards={count}")
 
