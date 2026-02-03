@@ -1072,6 +1072,9 @@ ThreeBoard<N, W>::soft_branch_cells(BitBoard<W> ps) {
 template <unsigned N, unsigned W>
 template <Axis d>
 _DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
+  const unsigned SOFT_BRANCH_1_THRESHOLD = 2;
+  const unsigned SOFT_BRANCH_2_THRESHOLD = 3;
+
   auto row_known_on = (d == Axis::Horizontal) ? known_on.row(r) : known_on.column(r);
   auto row_known_off = (d == Axis::Horizontal) ? known_off.row(r) : known_off.column(r);
   
