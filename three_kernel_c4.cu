@@ -31,8 +31,9 @@ __global__ void init_c4_line_table_kernel(uint32_t *table) {
   ThreeBoardC4<N> board;
   board.known_on.set(px, py);
   board.known_on.set(qx, qy);
-  board.eliminate_all_lines({px, py});
-  board.propagate();
+  board.eliminate_all_lines_slow({px, py});
+  board.eliminate_all_lines_slow({qx, qy});
+  board.propagate_slow();
   if (lane < LINE_TABLE_ROWS) {
     table[pair_idx * LINE_TABLE_ROWS + lane] = board.known_off.state;
   }

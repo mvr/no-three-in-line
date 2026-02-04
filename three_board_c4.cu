@@ -58,14 +58,19 @@ struct ThreeBoardC4 {
   static _DI_ void for_each_orbit_point(cuda::std::pair<int, int> p, Visitor &&visitor);
 
   _DI_ BitBoard<32> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
+  _DI_ BitBoard<32> eliminate_line_slow(cuda::std::pair<unsigned, unsigned> p,
+                                        cuda::std::pair<unsigned, unsigned> q) const;
   _DI_ BitBoard<32> eliminate_pair(cuda::std::pair<int, int> pi, cuda::std::pair<int, int> qj) const;
   _DI_ BitBoard<32> eliminate_pair_steps(cuda::std::pair<int, int> pi,
                                          cuda::std::pair<int, int> qj,
                                          int step_x, int step_y) const;
   _DI_ void eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p);
   _DI_ void eliminate_all_lines(BitBoard<32> seed);
+  _DI_ void eliminate_all_lines_slow(cuda::std::pair<unsigned, unsigned> p);
+  _DI_ void eliminate_all_lines_slow(BitBoard<32> seed);
 
   _DI_ void propagate();
+  _DI_ void propagate_slow();
 
   _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_row() const;
 };
@@ -348,8 +353,8 @@ template <unsigned N>
 _DI_ typename ThreeBoardC4<N>::FullBitBoard ThreeBoardC4<N>::expand_mask(BitBoard<32> mask) {
   FullBitBoard result;
 
-  while (!mask.empty()) {
-    auto cell = mask.some_on();
+  cuda::std::pair<int, int> cell;
+  while (mask.some_on_if_any(cell)) {
     mask.erase(cell);
 
     for_each_orbit_point(cell, [&](cuda::std::pair<int, int> pt) {
@@ -491,17 +496,20 @@ template <unsigned N>
 _DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
                                                   cuda::std::pair<unsigned, unsigned> q) {
   BitBoard<32> result;
+  constexpr unsigned cell_count = N * N;
+  const unsigned p_idx = p.second * N + p.first;
+  const unsigned q_idx = q.second * N + q.first;
+  const uint32_t *entry =
+      g_c4_line_table_32 + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_TABLE_ROWS;
+  const unsigned lane = threadIdx.x & 31;
+  const uint32_t row = __ldg(entry + lane);
+  return BitBoard<32>(row);
+}
 
-  if (g_c4_line_table_32 != nullptr) {
-    constexpr unsigned cell_count = N * N;
-    const unsigned p_idx = p.second * N + p.first;
-    const unsigned q_idx = q.second * N + q.first;
-    const uint32_t *entry =
-        g_c4_line_table_32 + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_TABLE_ROWS;
-    const unsigned lane = threadIdx.x & 31;
-    const uint32_t row = __ldg(entry + lane);
-    return BitBoard<32>(row);
-  }
+template <unsigned N>
+_DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_line_slow(cuda::std::pair<unsigned, unsigned> p,
+                                                       cuda::std::pair<unsigned, unsigned> q) const {
+  BitBoard<32> result;
 
   const auto orbit_p = orbit(p);
   const auto orbit_q = orbit(q);
@@ -559,29 +567,31 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_line(cuda::std::pair<unsigned, unsi
 template <unsigned N>
 _DI_ void ThreeBoardC4<N>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<32> qs = known_on;
-  if (g_c4_line_table_32 != nullptr) {
-    const unsigned lane = threadIdx.x & 31;
-    const unsigned p_idx = p.second * N + p.first;
-    const uint32_t *base =
-        g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
+  const unsigned lane = threadIdx.x & 31;
+  const unsigned p_idx = p.second * N + p.first;
+  const uint32_t *base =
+      g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
 
-    while (!qs.empty()) {
-      auto q = qs.some_on();
-      qs.erase(q);
-      const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
-      const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
-      known_off |= BitBoard<32>(row);
-      if (__any_sync(0xffffffff, row & known_on.state)) {
-        return;
-      }
-    }
-    apply_bounds();
-    return;
-  }
-  while (!qs.empty()) {
-    auto q = qs.some_on();
+  cuda::std::pair<int, int> q;
+  while (qs.some_on_if_any(q)) {
     qs.erase(q);
-    known_off |= eliminate_line(p, q);
+    const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
+    const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
+    known_off |= BitBoard<32>(row);
+    if (__any_sync(0xffffffff, row & known_on.state)) {
+      return;
+    }
+  }
+  apply_bounds();
+}
+
+template <unsigned N>
+_DI_ void ThreeBoardC4<N>::eliminate_all_lines_slow(cuda::std::pair<unsigned, unsigned> p) {
+  BitBoard<32> qs = known_on;
+  cuda::std::pair<int, int> q;
+  while (qs.some_on_if_any(q)) {
+    qs.erase(q);
+    known_off |= eliminate_line_slow(p, {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
     if (!consistent())
       return;
   }
@@ -590,33 +600,41 @@ _DI_ void ThreeBoardC4<N>::eliminate_all_lines(cuda::std::pair<unsigned, unsigne
 
 template <unsigned N>
 _DI_ void ThreeBoardC4<N>::eliminate_all_lines(BitBoard<32> ps) {
-  while (!ps.empty()) {
-    auto p = ps.some_on();
+  cuda::std::pair<int, int> p;
+  while (ps.some_on_if_any(p)) {
     ps.erase(p);
 
     BitBoard<32> qs = known_on & ~ps;
-    if (g_c4_line_table_32 != nullptr) {
-      const unsigned lane = threadIdx.x & 31;
-      const unsigned p_idx = static_cast<unsigned>(p.second) * N + static_cast<unsigned>(p.first);
-      const uint32_t *base =
-          g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
+    const unsigned lane = threadIdx.x & 31;
+    const unsigned p_idx = static_cast<unsigned>(p.second) * N + static_cast<unsigned>(p.first);
+    const uint32_t *base =
+        g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
 
-      while (!qs.empty()) {
-        auto q = qs.some_on();
-        qs.erase(q);
-        const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
-        const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
-        known_off |= BitBoard<32>(row);
-        if (__any_sync(0xffffffff, row & known_on.state)) {
-          return;
-        }
-      }
-      continue;
-    }
-    while (!qs.empty()) {
-      auto q = qs.some_on();
+    cuda::std::pair<int, int> q;
+    while (qs.some_on_if_any(q)) {
       qs.erase(q);
-      known_off |= eliminate_line(p, q);
+      const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
+      const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
+      known_off |= BitBoard<32>(row);
+      if (__any_sync(0xffffffff, row & known_on.state)) {
+        return;
+      }
+    }
+  }
+  apply_bounds();
+}
+
+template <unsigned N>
+_DI_ void ThreeBoardC4<N>::eliminate_all_lines_slow(BitBoard<32> ps) {
+  cuda::std::pair<int, int> p;
+  while (ps.some_on_if_any(p)) {
+    ps.erase(p);
+
+    BitBoard<32> qs = known_on & ~ps;
+    cuda::std::pair<int, int> q;
+    while (qs.some_on_if_any(q)) {
+      qs.erase(q);
+      known_off |= eliminate_line_slow(p, q);
       if (!consistent())
         return;
     }
@@ -626,31 +644,44 @@ _DI_ void ThreeBoardC4<N>::eliminate_all_lines(BitBoard<32> ps) {
 
 template <unsigned N>
 _DI_ void ThreeBoardC4<N>::propagate() {
-  ThreeBoardC4<N> prev_state;
-  BitBoard<32> processed = known_on;
+  ThreeBoardC4<N> prev;
+  BitBoard<32> done_ons = known_on;
 
   do {
-    prev_state = *this;
-
-    ThreeBoardC4<N> prev_force;
     do {
-      prev_force = *this;
-      ThreeBoardC4<N> forced = force_orthogonal();
-      known_on = forced.known_on;
-      known_off = forced.known_off;
-      apply_bounds();
+      prev = *this;
+      *this = force_orthogonal();
       if (!consistent())
         return;
-    } while (!(*this == prev_force));
+    } while (!(*this == prev));
 
-    BitBoard<32> newly_on = known_on & ~processed;
-    if (!newly_on.empty()) {
-      eliminate_all_lines(newly_on);
+    prev = *this;
+    eliminate_all_lines(known_on & ~done_ons);
+    if (!consistent())
+      return;
+    done_ons = known_on;
+  } while (!(*this == prev));
+}
+
+template <unsigned N>
+_DI_ void ThreeBoardC4<N>::propagate_slow() {
+  ThreeBoardC4<N> prev;
+  BitBoard<32> done_ons = known_on;
+
+  do {
+    do {
+      prev = *this;
+      *this = force_orthogonal();
       if (!consistent())
         return;
-      processed = known_on;
-    }
-  } while (!(*this == prev_state));
+    } while (!(*this == prev));
+
+    prev = *this;
+    eliminate_all_lines_slow(known_on & ~done_ons);
+    if (!consistent())
+      return;
+    done_ons = known_on;
+  } while (!(*this == prev));
 }
 
 template <unsigned N>
