@@ -19,7 +19,7 @@ __global__ void compare_with_unknowns_kernel(board_row_t<W> *a_on_data, board_ro
   BitBoard<W> b_on = BitBoard<W>::load(b_on_data);
   BitBoard<W> b_off = BitBoard<W>::load(b_off_data);
 
-  *result = compare_with_unknowns<N, W>(a_on, a_off, b_on, b_off);
+  *result = compare_with_unknowns<W>(a_on, a_off, b_on, b_off, ThreeBoard<N, W>::bounds());
 }
 
 template <unsigned N, unsigned W>

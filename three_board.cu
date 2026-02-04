@@ -4,6 +4,7 @@
 #include "params.hpp"
 
 #include "board.cu"
+#include "compare_with_unknowns.cuh"
 
 __device__ uint32_t *g_line_table_32 = nullptr;
 
@@ -40,6 +41,8 @@ struct ThreeBoard {
   _DI_ BitBoard<W> vulnerable() const;
   _DI_ BitBoard<W> semivulnerable() const;
   _DI_ BitBoard<W> quasivulnerable() const;
+  template <unsigned UnknownTarget>
+  _DI_ BitBoard<W> semivulnerable_like() const;
 
   _DI_ BitBoard<W> eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q, cuda::std::pair<unsigned, unsigned> delta);
   _DI_ BitBoard<W> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
@@ -51,12 +54,6 @@ struct ThreeBoard {
   _DI_ void eliminate_one_hop(BitBoard<W> seed);
 
   _DI_ void propagate();
-
-  _DI_ void soft_branch_cell(cuda::std::pair<unsigned, unsigned> cell);
-  _DI_ void soft_branch_cells(BitBoard<W> cells);
-  template<Axis d>
-  _DI_ void soft_branch(unsigned row);
-  _DI_ void soft_branch_all();
 
   _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_row() const;
   _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_col() const;
@@ -152,133 +149,51 @@ _DI_ unsigned ThreeBoard<N, W>::unknown_pop() const {
   return N*N - (known_on | known_off).pop();
 }
 
-template<unsigned N, unsigned W>
-_DI_ LexStatus compare_with_unknowns(const BitBoard<W> a_on, const BitBoard<W> a_off,
-                                     const BitBoard<W> b_on, const BitBoard<W> b_off) {
-  // We need to find the first differing bit position where:
-  // - Both are known (not unknown)
-  // - They differ in value
-
-  BitBoard<W> a_unknown = ~(a_on | a_off);
-  BitBoard<W> b_unknown = ~(b_on | b_off);
-
-  BitBoard<W> both_known = ~(a_unknown | b_unknown);
-  BitBoard<W> diff = (a_on ^ b_on) & both_known;
-
-  if (diff.empty()) {
-    // Check if any unknowns exist that could change the comparison
-    BitBoard<W> critical_unknowns = (a_unknown | b_unknown) & ThreeBoard<N, W>::bounds();
-    return critical_unknowns.empty() ? LexStatus::Equal : LexStatus::Unknown;
-  }
-
-  auto cell = diff.first_on();
-
-  BitBoard<W> before_mask = BitBoard<W>::positions_before(cell) & ThreeBoard<N, W>::bounds();
-
-  if (a_on.get(cell)) {
-    // a = 1, b = 0 at first difference
-    // But we need to check if there's an earlier unknown that could flip this
-
-    BitBoard<W> critical_before = before_mask & (
-        (a_unknown & b_on) |   // a unknown, b = 1 (could make a < b)
-        (a_off & b_unknown) |  // a = 0, b unknown (could make a < b)
-        (a_unknown & b_unknown) // both unknown (could become different)
-    );
-
-    return critical_before.empty() ? LexStatus::Greater : LexStatus::Unknown;
-  } else {
-    // a = 0, b = 1 at first difference
-
-    BitBoard<W> critical_before = before_mask & (
-        (a_unknown & b_off) |   // a unknown, b = 0 (could make a > b)
-        (a_on & b_unknown) |    // a = 1, b unknown (could make a > b)
-        (a_unknown & b_unknown) // both unknown (could become different)
-    );
-
-    return critical_before.empty() ? LexStatus::Less : LexStatus::Unknown;
-  }
-}
-
-struct ForceCandidate {
-  bool has_force = false;
-  bool force_on = false;
-  bool on_b = false;
-  cuda::std::pair<int, int> cell{0, 0};
-};
-
-template<unsigned N, unsigned W>
-_DI_ LexStatus compare_with_unknowns_forced(const BitBoard<W> a_on, const BitBoard<W> a_off,
-                                            const BitBoard<W> b_on, const BitBoard<W> b_off,
-                                            ForceCandidate &forced) {
-  BitBoard<W> a_unknown = ~(a_on | a_off);
-  BitBoard<W> b_unknown = ~(b_on | b_off);
-  const BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
-
-  LexStatus order = compare_with_unknowns<N, W>(a_on, a_off, b_on, b_off);
-  if (order == LexStatus::Unknown) {
-    BitBoard<W> critical_unknowns = (a_unknown | b_unknown) & bounds;
-    if (!critical_unknowns.empty()) {
-      auto candidate = critical_unknowns.first_on();
-      if (a_on.get(candidate) && b_unknown.get(candidate)) {
-        forced.has_force = true;
-        forced.force_on = true;
-        forced.on_b = true;
-        forced.cell = candidate;
-      } else if (a_unknown.get(candidate) && b_off.get(candidate)) {
-        forced.has_force = true;
-        forced.force_on = false;
-        forced.on_b = false;
-        forced.cell = candidate;
-      }
-    }
-  }
-  return order;
-}
-
 template <unsigned N, unsigned W>
 _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation() const {
   bool any_unknown = false;
   LexStatus order;
 
+  const BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
   BitBoard<W> flip_h_on = known_on.flip_horizontal().rotate_torus(N, 0);
   BitBoard<W> flip_h_off = known_off.flip_horizontal().rotate_torus(N, 0);
-  order = compare_with_unknowns<N, W>(known_on, known_off, flip_h_on, flip_h_off);
+  order = compare_with_unknowns<W>(known_on, known_off, flip_h_on, flip_h_off, bounds);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
   BitBoard<W> flip_v_on = known_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> flip_v_off = known_off.flip_vertical().rotate_torus(0, N);
-  order = compare_with_unknowns<N, W>(known_on, known_off, flip_v_on, flip_v_off);
+  order = compare_with_unknowns<W>(known_on, known_off, flip_v_on, flip_v_off, bounds);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
   BitBoard<W> rot180_on = flip_h_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> rot180_off = flip_h_off.flip_vertical().rotate_torus(0, N);
-  order = compare_with_unknowns<N, W>(known_on, known_off, rot180_on, rot180_off);
+  order = compare_with_unknowns<W>(known_on, known_off, rot180_on, rot180_off, bounds);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
   BitBoard<W> diag_on = known_on.flip_diagonal();
   BitBoard<W> diag_off = known_off.flip_diagonal();
-  order = compare_with_unknowns<N, W>(known_on, known_off, diag_on, diag_off);
+  order = compare_with_unknowns<W>(known_on, known_off, diag_on, diag_off, bounds);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
   BitBoard<W> rot90_on = diag_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> rot90_off = diag_off.flip_vertical().rotate_torus(0, N);
-  order = compare_with_unknowns<N, W>(known_on, known_off, rot90_on, rot90_off);
+  order = compare_with_unknowns<W>(known_on, known_off, rot90_on, rot90_off, bounds);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
   BitBoard<W> rot270_on = diag_on.flip_horizontal().rotate_torus(N, 0);
   BitBoard<W> rot270_off = diag_off.flip_horizontal().rotate_torus(N, 0);
-  order = compare_with_unknowns<N, W>(known_on, known_off, rot270_on, rot270_off);
+  order = compare_with_unknowns<W>(known_on, known_off, rot270_on, rot270_off, bounds);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
   BitBoard<W> anti_diag_on = rot270_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> anti_diag_off = rot270_off.flip_vertical().rotate_torus(0, N);
-  order = compare_with_unknowns<N, W>(known_on, known_off, anti_diag_on, anti_diag_off);
+  order = compare_with_unknowns<W>(known_on, known_off, anti_diag_on, anti_diag_off, bounds);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) any_unknown = true;
 
@@ -295,6 +210,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   LexStatus order;
   ForceCandidate local_force;
 
+  const BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
   constexpr int kSize = (W == 32) ? 32 : 64;
   constexpr int kMask = kSize - 1;
   auto wrap = [&](int v) { return v & kMask; };
@@ -332,7 +248,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   BitBoard<W> flip_h_on = known_on.flip_horizontal().rotate_torus(N, 0);
   BitBoard<W> flip_h_off = known_off.flip_horizontal().rotate_torus(N, 0);
   local_force = ForceCandidate{};
-  order = compare_with_unknowns_forced<N, W>(known_on, known_off, flip_h_on, flip_h_off, local_force);
+  order = compare_with_unknowns_forced<W>(known_on, known_off, flip_h_on, flip_h_off, bounds, local_force);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) {
     any_unknown = true;
@@ -347,7 +263,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   BitBoard<W> flip_v_on = known_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> flip_v_off = known_off.flip_vertical().rotate_torus(0, N);
   local_force = ForceCandidate{};
-  order = compare_with_unknowns_forced<N, W>(known_on, known_off, flip_v_on, flip_v_off, local_force);
+  order = compare_with_unknowns_forced<W>(known_on, known_off, flip_v_on, flip_v_off, bounds, local_force);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) {
     any_unknown = true;
@@ -362,7 +278,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   BitBoard<W> rot180_on = flip_h_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> rot180_off = flip_h_off.flip_vertical().rotate_torus(0, N);
   local_force = ForceCandidate{};
-  order = compare_with_unknowns_forced<N, W>(known_on, known_off, rot180_on, rot180_off, local_force);
+  order = compare_with_unknowns_forced<W>(known_on, known_off, rot180_on, rot180_off, bounds, local_force);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) {
     any_unknown = true;
@@ -379,7 +295,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   BitBoard<W> diag_on = known_on.flip_diagonal();
   BitBoard<W> diag_off = known_off.flip_diagonal();
   local_force = ForceCandidate{};
-  order = compare_with_unknowns_forced<N, W>(known_on, known_off, diag_on, diag_off, local_force);
+  order = compare_with_unknowns_forced<W>(known_on, known_off, diag_on, diag_off, bounds, local_force);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) {
     any_unknown = true;
@@ -392,7 +308,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   BitBoard<W> rot90_on = diag_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> rot90_off = diag_off.flip_vertical().rotate_torus(0, N);
   local_force = ForceCandidate{};
-  order = compare_with_unknowns_forced<N, W>(known_on, known_off, rot90_on, rot90_off, local_force);
+  order = compare_with_unknowns_forced<W>(known_on, known_off, rot90_on, rot90_off, bounds, local_force);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) {
     any_unknown = true;
@@ -408,7 +324,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   BitBoard<W> rot270_on = diag_on.flip_horizontal().rotate_torus(N, 0);
   BitBoard<W> rot270_off = diag_off.flip_horizontal().rotate_torus(N, 0);
   local_force = ForceCandidate{};
-  order = compare_with_unknowns_forced<N, W>(known_on, known_off, rot270_on, rot270_off, local_force);
+  order = compare_with_unknowns_forced<W>(known_on, known_off, rot270_on, rot270_off, bounds, local_force);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) {
     any_unknown = true;
@@ -424,7 +340,7 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   BitBoard<W> anti_diag_on = rot270_on.flip_vertical().rotate_torus(0, N);
   BitBoard<W> anti_diag_off = rot270_off.flip_vertical().rotate_torus(0, N);
   local_force = ForceCandidate{};
-  order = compare_with_unknowns_forced<N, W>(known_on, known_off, anti_diag_on, anti_diag_off, local_force);
+  order = compare_with_unknowns_forced<W>(known_on, known_off, anti_diag_on, anti_diag_off, bounds, local_force);
   if (order == LexStatus::Greater) return LexStatus::Greater;
   if (order == LexStatus::Unknown) {
     any_unknown = true;
@@ -679,114 +595,31 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const {
 }
 
 template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable() const {
+template <unsigned UnknownTarget>
+_DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
+  static_assert(UnknownTarget < 8, "semivulnerable_like expects a target < 8");
   BitBoard<W> result;
-
-  if constexpr (W == 32) {
-    // Semivulnerable horizontally: 0 on, 4 unknown.
-    {
-      unsigned on_pop = popcount<32>(known_on.state);
-      unsigned off_pop = popcount<32>(known_off.state);
-      unsigned unknown_pop = N - on_pop - off_pop;
-      bool semivuln_row = (on_pop == 0 && unknown_pop == 4);
-
-      if (semivuln_row)
-        result.state = ~(board_row_t<W>)0;
-    }
-
-    // Semivulnerable vertically: 0 on, 4 unknown.
-    {
-      BitBoard<32> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
-      const BinaryCountSaturating3<32> on_count = count_vertically_saturating3<32>(known_on.state);
-      const BinaryCountSaturating3<32> unknown_count = count_vertically_saturating3<32>(unknown.state);
-
-      const uint32_t on_zero = ~(on_count.bit0 | on_count.bit1 | on_count.bit2);
-      const uint32_t unknown_eq_4 = unknown_count.bit2 & ~unknown_count.bit1 & ~unknown_count.bit0;
-      const uint32_t semivuln_column = on_zero & unknown_eq_4;
-
-      result.state |= semivuln_column;
-    }
-  } else {
-    // Semivulnerable horizontally: 0 on, 4 unknown.
-    {
-      unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
-      unsigned off_pop_xy = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
-      unsigned unknown_pop_xy = N - on_pop_xy - off_pop_xy;
-      bool semivuln_row_xy = (on_pop_xy == 0 && unknown_pop_xy == 4);
-
-      if (semivuln_row_xy) {
-        result.state.x = ~(board_row_t<W>)0;
-        result.state.y = ~(board_row_t<W>)0;
-      }
-
-      unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
-      unsigned off_pop_zw = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
-      unsigned unknown_pop_zw = N - on_pop_zw - off_pop_zw;
-      bool semivuln_row_zw = (on_pop_zw == 0 && unknown_pop_zw == 4);
-
-      if (semivuln_row_zw) {
-        result.state.z = ~(board_row_t<W>)0;
-        result.state.w = ~(board_row_t<W>)0;
-      }
-    }
-
-    // Semivulnerable vertically: 0 on, 4 unknown.
-    {
-      BitBoard<64> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
-
-      const BinaryCountSaturating3<32> on_count_xz =
-          count_vertically_saturating3<32>(known_on.state.x) + count_vertically_saturating3<32>(known_on.state.z);
-      const BinaryCountSaturating3<32> unknown_count_xz =
-          count_vertically_saturating3<32>(unknown.state.x) + count_vertically_saturating3<32>(unknown.state.z);
-
-      const uint32_t on_zero_xz = ~(on_count_xz.bit0 | on_count_xz.bit1 | on_count_xz.bit2);
-      const uint32_t unknown_eq_4_xz = unknown_count_xz.bit2 & ~unknown_count_xz.bit1 & ~unknown_count_xz.bit0;
-      const uint32_t semivuln_column_xz = on_zero_xz & unknown_eq_4_xz;
-
-      result.state.x |= semivuln_column_xz;
-      result.state.z |= semivuln_column_xz;
-
-      const BinaryCountSaturating3<32> on_count_yw =
-          count_vertically_saturating3<32>(known_on.state.y) + count_vertically_saturating3<32>(known_on.state.w);
-      const BinaryCountSaturating3<32> unknown_count_yw =
-          count_vertically_saturating3<32>(unknown.state.y) + count_vertically_saturating3<32>(unknown.state.w);
-
-      const uint32_t on_zero_yw = ~(on_count_yw.bit0 | on_count_yw.bit1 | on_count_yw.bit2);
-      const uint32_t unknown_eq_4_yw = unknown_count_yw.bit2 & ~unknown_count_yw.bit1 & ~unknown_count_yw.bit0;
-      const uint32_t semivuln_column_yw = on_zero_yw & unknown_eq_4_yw;
-
-      result.state.y |= semivuln_column_yw;
-      result.state.w |= semivuln_column_yw;
-    }
-  }
-
-  result &= ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
-  return result;
-}
-
-template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoard<N, W>::quasivulnerable() const {
-  BitBoard<W> result;
+  const BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
 
   if constexpr (W == 32) {
     unsigned on_pop = popcount<32>(known_on.state);
     unsigned off_pop = popcount<32>(known_off.state);
     unsigned unknown_pop = N - on_pop - off_pop;
-    if (on_pop == 0 && unknown_pop == 5) {
+    if (on_pop == 0 && unknown_pop == UnknownTarget) {
       result.state = ~(board_row_t<W>)0;
     }
 
-    BitBoard<32> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
+    BitBoard<32> unknown = ~known_on & ~known_off & bounds;
     const BinaryCountSaturating3<32> on_count = count_vertically_saturating3<32>(known_on.state);
     const BinaryCountSaturating3<32> unknown_count = count_vertically_saturating3<32>(unknown.state);
-    const uint32_t on_zero = ~(on_count.bit0 | on_count.bit1 | on_count.bit2);
-    const uint32_t unknown_eq_5 = unknown_count.bit2 & ~unknown_count.bit1 & unknown_count.bit0;
-    result.state |= on_zero & unknown_eq_5;
+    const uint32_t on_zero = on_count.template eq_target<0>();
+    const uint32_t unknown_eq = unknown_count.template eq_target<UnknownTarget>();
+    result.state |= on_zero & unknown_eq;
   } else {
     unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
     unsigned off_pop_xy = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
     unsigned unknown_pop_xy = N - on_pop_xy - off_pop_xy;
-    if (on_pop_xy == 0 && unknown_pop_xy == 5) {
+    if (on_pop_xy == 0 && unknown_pop_xy == UnknownTarget) {
       result.state.x = ~(board_row_t<W>)0;
       result.state.y = ~(board_row_t<W>)0;
     }
@@ -794,36 +627,46 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::quasivulnerable() const {
     unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
     unsigned off_pop_zw = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
     unsigned unknown_pop_zw = N - on_pop_zw - off_pop_zw;
-    if (on_pop_zw == 0 && unknown_pop_zw == 5) {
+    if (on_pop_zw == 0 && unknown_pop_zw == UnknownTarget) {
       result.state.z = ~(board_row_t<W>)0;
       result.state.w = ~(board_row_t<W>)0;
     }
 
-    BitBoard<64> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
+    BitBoard<64> unknown = ~known_on & ~known_off & bounds;
 
     const BinaryCountSaturating3<32> on_count_xz =
         count_vertically_saturating3<32>(known_on.state.x) + count_vertically_saturating3<32>(known_on.state.z);
     const BinaryCountSaturating3<32> unknown_count_xz =
         count_vertically_saturating3<32>(unknown.state.x) + count_vertically_saturating3<32>(unknown.state.z);
-    const uint32_t on_zero_xz = ~(on_count_xz.bit0 | on_count_xz.bit1 | on_count_xz.bit2);
-    const uint32_t unknown_eq_5_xz = unknown_count_xz.bit2 & ~unknown_count_xz.bit1 & unknown_count_xz.bit0;
-    const uint32_t quasivuln_column_xz = on_zero_xz & unknown_eq_5_xz;
-    result.state.x |= quasivuln_column_xz;
-    result.state.z |= quasivuln_column_xz;
+    const uint32_t on_zero_xz = on_count_xz.template eq_target<0>();
+    const uint32_t unknown_eq_xz = unknown_count_xz.template eq_target<UnknownTarget>();
+    const uint32_t column_xz = on_zero_xz & unknown_eq_xz;
+    result.state.x |= column_xz;
+    result.state.z |= column_xz;
 
     const BinaryCountSaturating3<32> on_count_yw =
         count_vertically_saturating3<32>(known_on.state.y) + count_vertically_saturating3<32>(known_on.state.w);
     const BinaryCountSaturating3<32> unknown_count_yw =
         count_vertically_saturating3<32>(unknown.state.y) + count_vertically_saturating3<32>(unknown.state.w);
-    const uint32_t on_zero_yw = ~(on_count_yw.bit0 | on_count_yw.bit1 | on_count_yw.bit2);
-    const uint32_t unknown_eq_5_yw = unknown_count_yw.bit2 & ~unknown_count_yw.bit1 & unknown_count_yw.bit0;
-    const uint32_t quasivuln_column_yw = on_zero_yw & unknown_eq_5_yw;
-    result.state.y |= quasivuln_column_yw;
-    result.state.w |= quasivuln_column_yw;
+    const uint32_t on_zero_yw = on_count_yw.template eq_target<0>();
+    const uint32_t unknown_eq_yw = unknown_count_yw.template eq_target<UnknownTarget>();
+    const uint32_t column_yw = on_zero_yw & unknown_eq_yw;
+    result.state.y |= column_yw;
+    result.state.w |= column_yw;
   }
 
-  result &= ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
+  result &= ~known_on & ~known_off & bounds;
   return result;
+}
+
+template <unsigned N, unsigned W>
+_DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable() const {
+  return semivulnerable_like<4>();
+}
+
+template <unsigned N, unsigned W>
+_DI_ BitBoard<W> ThreeBoard<N, W>::quasivulnerable() const {
+  return semivulnerable_like<5>();
 }
 
 template <unsigned N, unsigned W>
@@ -1024,140 +867,6 @@ _DI_ void ThreeBoard<N, W>::propagate() {
 
     done_ons = known_on;
   } while (*this != prev);
-}
-
-template <unsigned N, unsigned W>
-_DI_ void
-ThreeBoard<N, W>::soft_branch_cell(cuda::std::pair<unsigned, unsigned> cell) {
-  ThreeBoard<N, W> common(BitBoard<W>::solid(), BitBoard<W>::solid());
-
-  {
-    ThreeBoard<N, W> subBoard = *this;
-    subBoard.known_on.set(cell);
-    subBoard.eliminate_all_lines(cell);
-    subBoard.propagate();
-    if (subBoard.consistent()) {
-      common.known_on &= subBoard.known_on;
-      common.known_off &= subBoard.known_off;
-    }
-  }
-  {
-    ThreeBoard<N, W> subBoard = *this;
-    subBoard.known_off.set(cell);
-    subBoard.propagate();
-    if (subBoard.consistent()) {
-      common.known_on &= subBoard.known_on;
-      common.known_off &= subBoard.known_off;
-    }
-  }
-
-  known_on |= common.known_on;
-  known_off |= common.known_off;
-}
-
-template <unsigned N, unsigned W>
-_DI_ void
-ThreeBoard<N, W>::soft_branch_cells(BitBoard<W> ps) {
-  for (auto p = ps.first_on(); !ps.empty();
-       ps.erase(p), p = ps.first_on()) {
-    soft_branch_cell(p);
-
-    if (!consistent())
-      break;
-
-    ps &= ~known_on & ~known_off;
-  }
-}
-
-template <unsigned N, unsigned W>
-template <Axis d>
-_DI_ void ThreeBoard<N, W>::soft_branch<d>(unsigned r) {
-  const unsigned SOFT_BRANCH_1_THRESHOLD = 2;
-  const unsigned SOFT_BRANCH_2_THRESHOLD = 3;
-
-  auto row_known_on = (d == Axis::Horizontal) ? known_on.row(r) : known_on.column(r);
-  auto row_known_off = (d == Axis::Horizontal) ? known_off.row(r) : known_off.column(r);
-  
-  unsigned on_count = popcount<W>(row_known_on);
-  if(on_count >= 2) return;
-
-  unsigned off_count = popcount<W>(row_known_off);
-  unsigned unknown_count = N - on_count - off_count;
-  
-  if (on_count == 1 && unknown_count > SOFT_BRANCH_1_THRESHOLD) return;
-  if (on_count == 0 && unknown_count > SOFT_BRANCH_2_THRESHOLD) return;
-
-  ThreeBoard<N, W> common(BitBoard<W>::solid(), BitBoard<W>::solid());
-  board_row_t<W> remaining = ~row_known_on & ~row_known_off & (((board_row_t<W>)1 << N) - 1);
-
-  auto make_cell = [&](unsigned c) {
-    return (d == Axis::Horizontal) ? cuda::std::pair<unsigned, unsigned>{c, r} : cuda::std::pair<unsigned, unsigned>{r, c};
-  };
-
-  for (; remaining; remaining &= remaining - 1) {
-    auto cell = make_cell(find_first_set<W>(remaining));
-
-    ThreeBoard<N, W> subBoard = *this;
-    subBoard.known_on.set(cell);
-    subBoard.eliminate_all_lines(cell);
-    subBoard.propagate();
-
-    if (!subBoard.consistent()) {
-      known_off.set(cell);
-      continue;
-    }
-
-    if(on_count == 1) {
-      common.known_on &= subBoard.known_on;
-      common.known_off &= subBoard.known_off;
-      continue;
-    }
-
-    auto row_known_on2 = (d == Axis::Horizontal) ? subBoard.known_on.row(r) : subBoard.known_on.column(r);
-    auto row_known_off2 = (d == Axis::Horizontal) ? subBoard.known_off.row(r) : subBoard.known_off.column(r);
-    board_row_t<W> remaining2 =
-      remaining &
-      ~row_known_on2 & ~row_known_off2 &
-      ~((board_row_t<W>)1 << find_first_set<W>(remaining)) &
-      (((board_row_t<W>)1 << N) - 1);
-
-    if (remaining2 == 0) {
-      common.known_on &= subBoard.known_on;
-      common.known_off &= subBoard.known_off;
-    }
-
-    unsigned remaining2_count = popcount<W>(remaining2);
-
-    for (; remaining2_count>1; remaining2_count--, remaining2 &= remaining2 - 1) {
-      auto cell2 = make_cell(find_first_set<W>(remaining2));
-
-      ThreeBoard<N, W> subBoard2 = subBoard;
-      subBoard2.known_on.set(cell2);
-      subBoard2.eliminate_all_lines(cell2);
-      subBoard2.propagate();
-
-      if (!subBoard2.consistent()) {
-        subBoard.known_off.set(cell2);
-      } else {
-        common.known_on &= subBoard2.known_on;
-        common.known_off &= subBoard2.known_off;
-      }
-    }
-  }
-
-  known_on |= common.known_on;
-  known_off |= common.known_off;
-}
-
-
-template <unsigned N, unsigned W>
-_DI_ void ThreeBoard<N, W>::soft_branch_all() {
-  for (int r = 0; r < N; r++) {
-    soft_branch<Axis::Horizontal>(r);
-  }
-  for (int r = 0; r < N; r++) {
-    soft_branch<Axis::Vertical>(r);
-  }
 }
 
 _DI_ unsigned row_unknown_score(unsigned on_pop, unsigned unknown) {

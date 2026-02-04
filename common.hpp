@@ -203,6 +203,28 @@ struct BinaryCountSaturating3 {
   }
 
   _DI_ void operator+=(const BinaryCountSaturating3 other) { *this = *this + other; }
+
+  template <unsigned Target>
+  _DI_ board_row_t<W> eq_target() const {
+    static_assert(Target < 8, "eq_target supports targets 0-7");
+    board_row_t<W> mask = ~board_row_t<W>(0);
+    if constexpr (Target & 1) {
+      mask &= bit0;
+    } else {
+      mask &= ~bit0;
+    }
+    if constexpr (Target & 2) {
+      mask &= bit1;
+    } else {
+      mask &= ~bit1;
+    }
+    if constexpr (Target & 4) {
+      mask &= bit2;
+    } else {
+      mask &= ~bit2;
+    }
+    return mask;
+  }
 };
 
 template <unsigned W>

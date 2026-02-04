@@ -7,6 +7,8 @@
 #include <cuda/std/array>
 #include <cuda/std/utility>
 
+__device__ uint32_t *g_c4_line_table_32 = nullptr;
+
 // C4-symmetric board 2N × 2N for N up to 32. Stores only the
 // fundamental domain [0, N) × [0, N); the remaining three quadrants are
 // implied by fourfold rotational symmetry around (-0.5, -0.5).
@@ -21,6 +23,7 @@ struct ThreeBoardC4 {
   _DI_ ThreeBoardC4(BitBoard<32> on, BitBoard<32> off) : known_on{on}, known_off{off} {}
 
   static _DI_ BitBoard<32> bounds();
+  static _DI_ BitBoard<32> relevant_endpoint(cuda::std::pair<unsigned, unsigned> p);
 
   _DI_ bool consistent() const;
   _DI_ unsigned unknown_pop() const;
@@ -29,6 +32,10 @@ struct ThreeBoardC4 {
 
   _DI_ ThreeBoardC4<N> force_orthogonal() const;
   _DI_ BitBoard<32> vulnerable() const;
+  _DI_ BitBoard<32> semivulnerable() const;
+  _DI_ BitBoard<32> quasivulnerable() const;
+  template <unsigned UnknownTarget>
+  _DI_ BitBoard<32> semivulnerable_like() const;
   _DI_ void apply_bounds();
 
   static constexpr unsigned FULL_N = 2 * N;
@@ -76,6 +83,13 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::bounds() {
     result.state = 0;
   }
   return result;
+}
+
+template <unsigned N>
+_DI_ BitBoard<32> ThreeBoardC4<N>::relevant_endpoint(cuda::std::pair<unsigned, unsigned> p) {
+  uint64_t fullrow = relevant_endpoint_table[32 - p.second + (threadIdx.x & 31)];
+  uint32_t moved_row = fullrow >> (32 - p.first);
+  return BitBoard<32>(moved_row);
 }
 
 template <unsigned N>
@@ -210,6 +224,68 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::vulnerable() const {
   result &= unknown & bounds();
 
   return result;
+}
+
+template <unsigned W>
+_DI_ BinaryCountSaturating3<W> count_horizontally_saturating3(unsigned value) {
+  BinaryCountSaturating3<W> result{};
+
+  unsigned pop = popcount<W>(value);
+  bool bit0 = (pop & 1u) != 0u;
+  bool bit1 = (pop & 2u) != 0u;
+  bool bit2 = (pop & 4u) != 0u;
+  if (pop >= 7u) {
+    bit0 = true;
+    bit1 = true;
+    bit2 = true;
+  }
+
+  const unsigned mask = __activemask();
+  result.bit0 = __ballot_sync(mask, bit0);
+  result.bit1 = __ballot_sync(mask, bit1);
+  result.bit2 = __ballot_sync(mask, bit2);
+  return result;
+}
+
+template <unsigned N>
+template <unsigned UnknownTarget>
+_DI_ BitBoard<32> ThreeBoardC4<N>::semivulnerable_like() const {
+  static_assert(UnknownTarget < 8, "semivulnerable_like expects a target < 8");
+  BitBoard<32> result;
+
+  BitBoard<32> unknown = (~known_on & ~known_off) & bounds();
+
+  const BinaryCount<32> row_on_counter = count_horizontally<32>(known_on.state);
+  const BinaryCount<32> col_on_counter = count_vertically<32>(known_on.state);
+  const BinaryCount<32> total_on_counter = row_on_counter + col_on_counter;
+
+  const BinaryCountSaturating3<32> row_unknown_counter = count_horizontally_saturating3<32>(unknown.state);
+  const BinaryCountSaturating3<32> col_unknown_counter = count_vertically_saturating3<32>(unknown.state);
+  const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
+
+  const board_row_t<32> total_on_eq_0 = ~total_on_counter.bit0 & ~total_on_counter.bit1 & ~total_on_counter.overflow;
+  const board_row_t<32> total_unknown_eq = total_unknown_counter.template eq_target<UnknownTarget>();
+
+  const board_row_t<32> semivuln_rows = total_on_eq_0 & total_unknown_eq;
+
+  const board_row_t<32> lane_bit = 1u << (threadIdx.x & 31);
+  if (semivuln_rows & lane_bit) {
+    result.state = ~0u;
+  }
+  result.state |= semivuln_rows;
+
+  result &= unknown & bounds();
+  return result;
+}
+
+template <unsigned N>
+_DI_ BitBoard<32> ThreeBoardC4<N>::semivulnerable() const {
+  return semivulnerable_like<4>();
+}
+
+template <unsigned N>
+_DI_ BitBoard<32> ThreeBoardC4<N>::quasivulnerable() const {
+  return semivulnerable_like<5>();
 }
 
 // TODO just use symmetry helpers
@@ -416,6 +492,17 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_line(cuda::std::pair<unsigned, unsi
                                                   cuda::std::pair<unsigned, unsigned> q) {
   BitBoard<32> result;
 
+  if (g_c4_line_table_32 != nullptr) {
+    constexpr unsigned cell_count = N * N;
+    const unsigned p_idx = p.second * N + p.first;
+    const unsigned q_idx = q.second * N + q.first;
+    const uint32_t *entry =
+        g_c4_line_table_32 + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_TABLE_ROWS;
+    const unsigned lane = threadIdx.x & 31;
+    const uint32_t row = __ldg(entry + lane);
+    return BitBoard<32>(row);
+  }
+
   const auto orbit_p = orbit(p);
   const auto orbit_q = orbit(q);
 
@@ -472,6 +559,25 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::eliminate_line(cuda::std::pair<unsigned, unsi
 template <unsigned N>
 _DI_ void ThreeBoardC4<N>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<32> qs = known_on;
+  if (g_c4_line_table_32 != nullptr) {
+    const unsigned lane = threadIdx.x & 31;
+    const unsigned p_idx = p.second * N + p.first;
+    const uint32_t *base =
+        g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
+
+    while (!qs.empty()) {
+      auto q = qs.some_on();
+      qs.erase(q);
+      const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
+      const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
+      known_off |= BitBoard<32>(row);
+      if (__any_sync(0xffffffff, row & known_on.state)) {
+        return;
+      }
+    }
+    apply_bounds();
+    return;
+  }
   while (!qs.empty()) {
     auto q = qs.some_on();
     qs.erase(q);
@@ -489,7 +595,24 @@ _DI_ void ThreeBoardC4<N>::eliminate_all_lines(BitBoard<32> ps) {
     ps.erase(p);
 
     BitBoard<32> qs = known_on & ~ps;
+    if (g_c4_line_table_32 != nullptr) {
+      const unsigned lane = threadIdx.x & 31;
+      const unsigned p_idx = static_cast<unsigned>(p.second) * N + static_cast<unsigned>(p.first);
+      const uint32_t *base =
+          g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
 
+      while (!qs.empty()) {
+        auto q = qs.some_on();
+        qs.erase(q);
+        const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
+        const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
+        known_off |= BitBoard<32>(row);
+        if (__any_sync(0xffffffff, row & known_on.state)) {
+          return;
+        }
+      }
+      continue;
+    }
     while (!qs.empty()) {
       auto q = qs.some_on();
       qs.erase(q);

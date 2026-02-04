@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdint.h>
 #include <array>
 #include <vector>
@@ -10,6 +12,20 @@ template<unsigned W>
 struct Problem {
   board_array_t<W> known_on;
   board_array_t<W> known_off;
+};
+
+enum class StatId : unsigned {
+  NodesVisited,
+  VulnerableBranches,
+  SemiVulnerableBranches,
+  QuasiVulnerableBranches,
+  SymmetryForced,
+  CellBranches,
+  RowBranches,
+  CanonicalSkips,
+  Solutions,
+  InconsistentNodes,
+  Count
 };
 
 template <unsigned W>
