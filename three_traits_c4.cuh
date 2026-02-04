@@ -17,24 +17,21 @@ __device__ void resolve_outcome_row(const ThreeBoardC4<N> &board,
   board_row_t<32> col_known_on = board.known_on.column(ix);
   board_row_t<32> col_known_off = board.known_off.column(ix);
 
-  uint64_t full_on = (uint64_t(row_known_on) << N) | col_known_on;
-  uint64_t full_off = (uint64_t(row_known_off) << N) | col_known_off;
+  const board_row_t<32> row_mask = (N == 32) ? 0xffffffffu : ((board_row_t<32>(1) << N) - 1u);
+  board_row_t<32> row_remaining = ~row_known_on & ~row_known_off & row_mask;
+  board_row_t<32> col_remaining = ~col_known_on & ~col_known_off & row_mask;
 
-  constexpr uint64_t mask = []() {
-    if constexpr (2 * N >= 64) {
-      return ~0ULL;
-    } else {
-      return (1ULL << (2 * N)) - 1ULL;
+  const bool pivot_unknown = (row_remaining & (board_row_t<32>(1) << ix)) != 0;
+  row_remaining &= ~(board_row_t<32>(1) << ix);
+  col_remaining &= ~(board_row_t<32>(1) << ix);
+
+  uint64_t remaining = (uint64_t(row_remaining) << N) | col_remaining;
+
+  if ((row_known_on | col_known_on) == 0) {
+    if (remaining != 0) {
+      unsigned keep = find_last_set<64>(remaining);
+      remaining &= ~(uint64_t(1) << keep);
     }
-  }();
-
-  uint64_t remaining = ~full_on & ~full_off & mask;
-
-  remaining &= ~(uint64_t(1) << ix);
-
-  if (full_on == 0) {
-    unsigned keep = find_last_set<64>(remaining);
-    remaining &= ~(uint64_t(1) << keep);
   }
 
   while (remaining != 0) {
@@ -57,6 +54,18 @@ __device__ void resolve_outcome_row(const ThreeBoardC4<N> &board,
 
     tried_board.known_off.set(cell);
     remaining &= (remaining - 1);
+  }
+
+  if (pivot_unknown) {
+    cuda::std::pair<unsigned, unsigned> cell = {ix, ix};
+    ThreeBoardC4<N> sub_board = tried_board;
+    sub_board.known_on.set(cell);
+    sub_board.eliminate_all_lines(cell);
+    sub_board.propagate();
+
+    if (sub_board.consistent()) {
+      stack_push<32>(stack, sub_board.known_on, sub_board.known_off);
+    }
   }
 }
 
