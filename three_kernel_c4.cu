@@ -33,8 +33,8 @@ struct C4QueueTraits {
   using Queue = queue::Queue<C4QueueTraits<N>>;
 
   static constexpr uint32_t element_capacity = STACK_CAPACITY;
-  static constexpr uint32_t staging_capacity = MAX_BATCH_SIZE * 2;
-  static constexpr uint32_t dispatch_capacity = MAX_BATCH_SIZE;
+  static constexpr uint32_t staging_capacity = BATCH_MAX_SIZE * 2;
+  static constexpr uint32_t dispatch_capacity = BATCH_MAX_SIZE;
   static constexpr uint32_t free_capacity = STACK_CAPACITY;
   static constexpr uint32_t heap_log2_warps_per_block = 5;
 
@@ -142,10 +142,9 @@ __device__ void resolve_outcome_cell(const ThreeBoardC4<N> &board,
   using Traits = C4QueueTraits<N>;
   {
     ThreeBoardC4<N> sub_board = board;
-    BitBoard<32> seed;
-    seed.set(static_cast<int>(cell.first), static_cast<int>(cell.second));
-    sub_board.known_on |= seed;
-    sub_board.propagate(seed);
+    sub_board.known_on.set(static_cast<int>(cell.first), static_cast<int>(cell.second));
+    sub_board.eliminate_all_lines(cell);
+    sub_board.propagate();
     if (sub_board.consistent()) {
       DeviceProblemC4 element = {sub_board.known_on, sub_board.known_off};
       queue::enqueue<Traits>(queue, element);
@@ -280,7 +279,7 @@ int solve_with_device_stack_c4() {
   }
 
   while (true) {
-    queue::maintenance_kernel<Traits><<<1, 32u << Traits::heap_log2_warps_per_block>>>(queue, MAX_BATCH_SIZE);
+    queue::maintenance_kernel<Traits><<<1, 32u << Traits::heap_log2_warps_per_block>>>(queue, BATCH_MAX_SIZE);
     if (cudaDeviceSynchronize() != cudaSuccess) {
       return -1;
     }
@@ -298,7 +297,7 @@ int solve_with_device_stack_c4() {
       continue;
     }
 
-    unsigned batch_size = static_cast<unsigned>(std::min<uint64_t>(dispatch_available, MAX_BATCH_SIZE));
+    unsigned batch_size = static_cast<unsigned>(std::min<uint64_t>(dispatch_available, BATCH_MAX_SIZE));
     if (batch_size == 0) {
       continue;
     }
