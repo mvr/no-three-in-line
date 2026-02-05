@@ -411,10 +411,7 @@ __global__ void work_kernel(DeviceStack<W> *stack,
                             OutputBuffer<W> *output_buffer,
                             unsigned batch_start,
                             unsigned batch_size,
-                            unsigned processed_base,
-                            unsigned max_steps,
-                            unsigned min_on,
-                            bool use_min_on) {
+                            unsigned max_on) {
   const unsigned problem_offset = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
   const unsigned problem_idx = batch_start + problem_offset;
 
@@ -445,17 +442,12 @@ __global__ void work_kernel(DeviceStack<W> *stack,
 
   const unsigned on_pop = board.known_on.pop();
   if constexpr (FrontierMode) {
-    const unsigned global_idx = processed_base + problem_offset;
-    const bool reached_steps = max_steps > 0 && global_idx >= max_steps;
-    const bool above_min = !use_min_on || (on_pop >= min_on);
-    const bool emit = above_min && reached_steps;
-
     if (board.complete()) {
       output_buffer_push(output_buffer, problem.known_on, problem.known_off);
       return;
     }
 
-    if (emit) {
+    if (max_on > 0 && on_pop >= max_on) {
       output_buffer_push(output_buffer, problem.known_on, problem.known_off);
       return;
     }
@@ -568,8 +560,6 @@ int solve_with_device_stack_impl(const board_array_t<W> *seed_on,
   cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
   float feedback_scale = 1 / static_cast<float>(BATCH_MAX_SIZE/BATCH_WARMUP_SIZE);
 
-  unsigned processed_total = 0;
-
   while (start_size > 0) {
     unsigned batch_size = static_cast<unsigned>(feedback_scale * static_cast<float>(BATCH_MAX_SIZE));
     batch_size = std::clamp(batch_size, BATCH_MIN_SIZE, std::min(start_size, BATCH_MAX_SIZE));
@@ -588,10 +578,7 @@ int solve_with_device_stack_impl(const board_array_t<W> *seed_on,
           d_output,
           batch_start,
           batch_size,
-          processed_total,
-          cfg->max_steps,
-          cfg->min_on,
-          cfg->use_min_on);
+          cfg->max_on);
 
       cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
       if (overflow_count == 0) {
@@ -656,8 +643,6 @@ int solve_with_device_stack_impl(const board_array_t<W> *seed_on,
     unsigned output_overflow = 0;
     cudaMemcpy(&output_count, &d_output->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
     cudaMemcpy(&output_overflow, &d_output->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
-
-    processed_total += batch_size;
 
     if (output_overflow > 0) {
       std::cerr << "[error] output buffer overflow (" << output_overflow
