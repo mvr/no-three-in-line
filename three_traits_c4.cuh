@@ -75,8 +75,8 @@ struct C4Traits {
   static constexpr unsigned kW = 32;
   static constexpr unsigned kSymForceMaxOn = (N / 2);
 
+  // These are currently unused
   static constexpr unsigned kCellBranchRowScoreThreshold = 60;
-
   static constexpr int kCellBranchWColUnknown = 3;
   static constexpr int kCellBranchWRowUnknown = 4;
   static constexpr int kCellBranchWColOn = 3;

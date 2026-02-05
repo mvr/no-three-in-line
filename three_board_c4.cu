@@ -683,6 +683,7 @@ ThreeBoardC4<N>::most_constrained_row() const {
   unsigned ons = popcount<32>(known_on.state) + popcount<32>(known_on_rot.state);
   unsigned unknowns = popcount<32>(unknown.state) + popcount<32>(unknown_rot.state);
 
+  // TODO: This should actually be ons == 0, but this way around is much faster!
   if(ons == 1)
     unknowns = unknowns * (unknowns + 1) / 2;
 
