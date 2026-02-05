@@ -83,6 +83,8 @@ struct C4Traits {
   static constexpr int kCellBranchWColOff = 8;
   static constexpr int kCellBranchWEndpointOff = 0;
   static constexpr int kCellBranchWEndpointOn = 10;
+  static constexpr unsigned kRowOnZeroUnknownNum = 7;
+  static constexpr unsigned kRowOnZeroUnknownDen = 4;
 
   using Board = ThreeBoardC4<N>;
   using Problem = Problem<32>;
@@ -152,6 +154,74 @@ struct C4Traits {
     return {static_cast<unsigned>(cell.first), static_cast<unsigned>(cell.second)};
   }
 
+  _DI_ static unsigned pick_row_on_priority(const Board &board) {
+    const unsigned lane = threadIdx.x & 31;
+    const board_row_t<32> row_mask = (N == 32) ? 0xffffffffu : ((board_row_t<32>(1) << N) - 1u);
+
+    BitBoard<32> on_t = board.known_on.flip_diagonal();
+    BitBoard<32> off_t = board.known_off.flip_diagonal();
+
+    board_row_t<32> row_on = board.known_on.state & row_mask;
+    board_row_t<32> row_off = board.known_off.state & row_mask;
+    board_row_t<32> col_on = on_t.state & row_mask;
+    board_row_t<32> col_off = off_t.state & row_mask;
+
+    board_row_t<32> row_unknown = ~(row_on | row_off) & row_mask;
+    board_row_t<32> col_unknown = ~(col_on | col_off) & row_mask;
+
+    unsigned pivot_unknown = (row_unknown >> lane) & 1u;
+    bool row_empty = (row_on | col_on) == 0;
+    unsigned unknown_count = popcount<32>(row_unknown) + popcount<32>(col_unknown) - pivot_unknown;
+
+    unsigned row0 = lane;
+    unsigned row1 = lane;
+    unsigned best0_unknown = 0xffffffffu;
+    unsigned best1_unknown = 0xffffffffu;
+
+    if (lane < N && unknown_count != 0) {
+      if (row_empty) {
+        best0_unknown = unknown_count;
+      } else {
+        best1_unknown = unknown_count;
+      }
+    }
+
+    for (int offset = 16; offset > 0; offset /= 2) {
+      unsigned other_row0 = __shfl_down_sync(0xffffffff, row0, offset);
+      unsigned other0_unknown = __shfl_down_sync(0xffffffff, best0_unknown, offset);
+      if (other0_unknown < best0_unknown ||
+          (other0_unknown == best0_unknown && other_row0 < row0)) {
+        row0 = other_row0;
+        best0_unknown = other0_unknown;
+      }
+
+      unsigned other_row1 = __shfl_down_sync(0xffffffff, row1, offset);
+      unsigned other1_unknown = __shfl_down_sync(0xffffffff, best1_unknown, offset);
+      if (other1_unknown < best1_unknown ||
+          (other1_unknown == best1_unknown && other_row1 < row1)) {
+        row1 = other_row1;
+        best1_unknown = other1_unknown;
+      }
+    }
+
+    row0 = __shfl_sync(0xffffffff, row0, 0);
+    row1 = __shfl_sync(0xffffffff, row1, 0);
+    best0_unknown = __shfl_sync(0xffffffff, best0_unknown, 0);
+    best1_unknown = __shfl_sync(0xffffffff, best1_unknown, 0);
+
+    if (best1_unknown == 0xffffffffu)
+      return row0;
+
+    if (best0_unknown == 0xffffffffu)
+      return row1;
+
+    if ((best0_unknown * kRowOnZeroUnknownDen) <= (best1_unknown * kRowOnZeroUnknownNum)) {
+      return row0;
+    } else {
+      return row1;
+    }
+  }
+
   _DI_ static void seed_initial(Stack *stack) {
     constexpr unsigned seed_row = N / 2;
     Board board;
@@ -159,27 +229,9 @@ struct C4Traits {
   }
 
   _DI_ static void branch_fallback(const Board &board, Stack *stack) {
-    BitBoard<32> unknown = ~(board.known_on | board.known_off) & Board::bounds();
-
-    auto [row, unknown_count] = board.most_constrained_row();
-    if (unknown_count >= kCellBranchRowScoreThreshold) {
-      auto cell = pick_best_branch_cell<C4Traits<N>>(board);
-      stats_record(StatId::CellBranches);
-      resolve_outcome_cell<C4Traits<N>>(board, cell, stack);
-      return;
-    }
-
-    board_row_t<32> row_unknown = unknown.row(row);
-    if (row_unknown != 0) {
-      stats_record(StatId::RowBranches);
-      resolve_outcome_row<N>(board, row, stack);
-      return;
-    }
-
-    board_row_t<32> col_unknown = unknown.column(row);
-    unsigned col = find_first_set<32>(col_unknown);
-    stats_record(StatId::CellBranches);
-    resolve_outcome_cell<C4Traits<N>>(board, {row, col}, stack);
+    unsigned row = pick_row_on_priority(board);
+    stats_record(StatId::RowBranches);
+    resolve_outcome_row<N>(board, row, stack);
   }
 
   static void emit_solution(const Problem &problem) {
