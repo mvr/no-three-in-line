@@ -28,10 +28,12 @@ For more details, see the following blog posts:
 Solutions are given under `results/` in
 [RLE](https://conwaylife.com/wiki/Run_Length_Encoded) format, so they
 can be pasted into [Golly](https://golly.sourceforge.io/), for
-example. So far one new value has been calculated over what was
+example. So far a few new values have been calculated over what was
 previously known:
 
 * $19 \times 19$ solutions up to symmetry: 32577
+* $44 \times 44$ solutions with 4-fold rotational symmetry: 1016
+* $46 \times 46$ solutions with 4-fold rotational symmetry: 1366
 
 ## Compiling
 
