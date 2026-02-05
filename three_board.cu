@@ -56,8 +56,6 @@ struct ThreeBoard {
   _DI_ void propagate();
 
   _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_row() const;
-  _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_col() const;
-  _DI_ cuda::std::pair<Axis, unsigned> most_constrained() const;
 };
 
 template <unsigned N, unsigned W>
@@ -946,41 +944,4 @@ ThreeBoard<N, W>::most_constrained_row() const {
   unknown = __shfl_sync(0xffffffff, unknown, 0);
 
   return {row, unknown};
-}
-
-template <unsigned N, unsigned W>
-_DI_ cuda::std::pair<unsigned, unsigned>
-ThreeBoard<N, W>::most_constrained_col() const {
-  unsigned best_col = 0;
-  unsigned min_unknown = std::numeric_limits<unsigned>::max();
-
-  for (unsigned c = 0; c < N; c++) {
-    board_row_t<W> col_known_on = known_on.column(c);
-    board_row_t<W> col_known_off = known_off.column(c);
-    board_row_t<W> col_known = col_known_on | col_known_off;
-
-    unsigned unknown = N - popcount<W>(col_known);
-
-    if (col_known_on == 0) {
-      unknown = unknown * (unknown - 1) / 2;
-    }
-
-    if (unknown > 0 && unknown < min_unknown) {
-      best_col = c;
-      min_unknown = unknown;
-    }
-  }
-
-  return {best_col, min_unknown};
-}
-
-template <unsigned N, unsigned W>
-_DI_ cuda::std::pair<Axis, unsigned>
-ThreeBoard<N, W>::most_constrained() const {
-  auto [row, row_unknown] = most_constrained_row();
-  auto [col, col_unknown] = most_constrained_col();
-  if (row_unknown < col_unknown)
-    return {Axis::Horizontal, row};
-  else
-    return {Axis::Vertical, col};
 }

@@ -27,7 +27,6 @@ struct ThreeBoardC4 {
 
   _DI_ bool consistent() const;
   _DI_ unsigned unknown_pop() const;
-  _DI_ uint32_t priority() const;
   _DI_ bool operator==(const ThreeBoardC4<N> &other) const;
 
   _DI_ ThreeBoardC4<N> force_orthogonal() const;
@@ -112,19 +111,6 @@ _DI_ bool ThreeBoardC4<N>::consistent() const {
 template <unsigned N>
 _DI_ unsigned ThreeBoardC4<N>::unknown_pop() const {
   return N * N - (known_on | known_off).pop();
-}
-
-template <unsigned N>
-_DI_ uint32_t ThreeBoardC4<N>::priority() const {
-  const unsigned on = known_on.pop();
-  const unsigned off = known_off.pop();
-  // const unsigned vul = vulnerable().pop();
-
-  // const unsigned unknown = N*N - on - off;
-
-  // return on + off;
-  // return on;
-  return N*N*on - off;
 }
 
 template <unsigned N>
