@@ -1,4 +1,3 @@
-#include <array>
 #include <algorithm>
 #include <vector>
 #include <iostream>
@@ -11,80 +10,6 @@
 
 #include "params.hpp"
 #include "three_search.cuh"
-
-static inline void init_line_table_host_32() {
-  if constexpr (N > 32) {
-    return;
-  }
-
-  static bool initialized = false;
-  static uint32_t *d_line_table = nullptr;
-  if (initialized) {
-    return;
-  }
-  initialized = true;
-
-  const unsigned cell_count = N * N;
-  const unsigned rows = LINE_TABLE_ROWS;
-  const size_t entry_size = rows;
-  const size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
-  const size_t total_rows = total_entries * entry_size;
-
-  std::vector<uint32_t> host_table(total_rows, 0);
-
-  for (unsigned py = 0; py < N; ++py) {
-    for (unsigned px = 0; px < N; ++px) {
-      const unsigned p_idx = py * N + px;
-      for (unsigned qy = 0; qy < N; ++qy) {
-        for (unsigned qx = 0; qx < N; ++qx) {
-          const unsigned q_idx = qy * N + qx;
-          if (p_idx == q_idx) {
-            continue;
-          }
-
-          unsigned pyy = py;
-          unsigned pxx = px;
-          unsigned qyy = qy;
-          unsigned qxx = qx;
-          if (pyy > qyy) {
-            std::swap(pyy, qyy);
-            std::swap(pxx, qxx);
-          }
-
-          int dx = static_cast<int>(qxx) - static_cast<int>(pxx);
-          unsigned dy = qyy - pyy;
-          if (dy == 0) {
-            continue;
-          }
-
-          const unsigned adx = static_cast<unsigned>(std::abs(dx));
-          const unsigned g = std::gcd(adx, dy);
-          const unsigned delta_y = dy / g;
-          const int delta_x = (dx < 0 ? -1 : 1) * static_cast<int>(adx / g);
-
-          const unsigned p_quo = pyy / delta_y;
-          const unsigned p_rem = pyy % delta_y;
-
-          uint32_t *mask = &host_table[(static_cast<size_t>(p_idx) * cell_count + q_idx) * entry_size];
-          for (unsigned r = 0; r < N; ++r) {
-            if (r % delta_y == p_rem) {
-              int col = static_cast<int>(pxx) + (static_cast<int>(r / delta_y) - static_cast<int>(p_quo)) * delta_x;
-              if (col >= 0 && col < static_cast<int>(N)) {
-                mask[r] |= (uint32_t(1) << col);
-              }
-            }
-          }
-
-          mask[py] &= ~(uint32_t(1) << px);
-          mask[qy] &= ~(uint32_t(1) << qx);
-        }
-      }
-    }
-  }
-  cudaMalloc((void **)&d_line_table, total_rows * sizeof(uint32_t));
-  cudaMemcpy(d_line_table, host_table.data(), total_rows * sizeof(uint32_t), cudaMemcpyHostToDevice);
-  cudaMemcpyToSymbol(g_line_table_32, &d_line_table, sizeof(d_line_table));
-}
 
 template <unsigned N, unsigned W>
 __device__ unsigned pick_center_col(board_row_t<W> bits) {
@@ -169,7 +94,6 @@ struct AsymTraits {
   static constexpr int kCellBranchWRowUnknown = 4;
   static constexpr int kCellBranchWColOn = 3;
   static constexpr int kCellBranchWColOff = 8;
-  static constexpr int kCellBranchWEndpointOff = 0;
   static constexpr int kCellBranchWEndpointOn = 10;
 
   using Board = ThreeBoard<N, W>;
@@ -178,38 +102,86 @@ struct AsymTraits {
   using Output = OutputBuffer<W>;
   using Cell = cuda::std::pair<unsigned, unsigned>;
 
+  static void init_line_table_host_32() {
+    if constexpr (N > 32) {
+      return;
+    }
+
+    static bool initialized = false;
+    static uint32_t *d_line_table = nullptr;
+    if (initialized) {
+      return;
+    }
+    initialized = true;
+
+    const unsigned cell_count = N * N;
+    const unsigned rows = LINE_TABLE_ROWS;
+    const size_t entry_size = rows;
+    const size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
+    const size_t total_rows = total_entries * entry_size;
+
+    std::vector<uint32_t> host_table(total_rows, 0);
+
+    for (unsigned py = 0; py < N; ++py) {
+      for (unsigned px = 0; px < N; ++px) {
+        const unsigned p_idx = py * N + px;
+        for (unsigned qy = 0; qy < N; ++qy) {
+          for (unsigned qx = 0; qx < N; ++qx) {
+            const unsigned q_idx = qy * N + qx;
+            if (p_idx == q_idx) {
+              continue;
+            }
+
+            unsigned pyy = py;
+            unsigned pxx = px;
+            unsigned qyy = qy;
+            unsigned qxx = qx;
+            if (pyy > qyy) {
+              std::swap(pyy, qyy);
+              std::swap(pxx, qxx);
+            }
+
+            int dx = static_cast<int>(qxx) - static_cast<int>(pxx);
+            unsigned dy = qyy - pyy;
+            if (dy == 0) {
+              continue;
+            }
+
+            const unsigned adx = static_cast<unsigned>(std::abs(dx));
+            const unsigned g = std::gcd(adx, dy);
+            const unsigned delta_y = dy / g;
+            const int delta_x = (dx < 0 ? -1 : 1) * static_cast<int>(adx / g);
+
+            const unsigned p_quo = pyy / delta_y;
+            const unsigned p_rem = pyy % delta_y;
+
+            uint32_t *mask = &host_table[(static_cast<size_t>(p_idx) * cell_count + q_idx) * entry_size];
+            for (unsigned r = 0; r < N; ++r) {
+              if (r % delta_y == p_rem) {
+                int col = static_cast<int>(pxx) + (static_cast<int>(r / delta_y) - static_cast<int>(p_quo)) * delta_x;
+                if (col >= 0 && col < static_cast<int>(N)) {
+                  mask[r] |= (uint32_t(1) << col);
+                }
+              }
+            }
+
+            mask[py] &= ~(uint32_t(1) << px);
+            mask[qy] &= ~(uint32_t(1) << qx);
+          }
+        }
+      }
+    }
+
+    cudaMalloc((void **)&d_line_table, total_rows * sizeof(uint32_t));
+    cudaMemcpy(d_line_table, host_table.data(), total_rows * sizeof(uint32_t), cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(g_line_table_32, &d_line_table, sizeof(d_line_table));
+  }
+
   static void init_host() {
     init_lookup_tables_host();
     init_relevant_endpoint_host(N);
     init_relevant_endpoint_host_64(N);
     init_line_table_host_32();
-  }
-
-  _DI_ static Board load_board(const Problem &problem) {
-    Board board;
-    board.known_on = BitBoard<W>::load(problem.known_on.data());
-    board.known_off = BitBoard<W>::load(problem.known_off.data());
-    return board;
-  }
-
-  _DI_ static bool complete(const Board &board) {
-    return board.complete();
-  }
-
-  _DI_ static LexStatus canonical_with_forced(Board &board, ForcedCell &forced) {
-    return board.is_canonical_orientation_with_forced(forced);
-  }
-
-  _DI_ static BitBoard<W> vulnerable(const Board &board) {
-    return board.vulnerable();
-  }
-
-  _DI_ static BitBoard<W> semivulnerable(const Board &board) {
-    return board.semivulnerable();
-  }
-
-  _DI_ static BitBoard<W> quasivulnerable(const Board &board) {
-    return board.quasivulnerable();
   }
 
   _DI_ static Cell pick_preferred_branch_cell(const BitBoard<W> &mask) {
@@ -262,6 +234,3 @@ int solve_with_device_stack(const board_array_t<W> *seed_on,
 template int solve_with_device_stack<N, 32>();
 template int solve_with_device_stack<N, 32>(const board_array_t<32> *, const board_array_t<32> *);
 template int solve_with_device_stack<N, 32>(const FrontierConfig &);
-// template int solve_with_device_stack<N, 64>();
-// template int solve_with_device_stack<N, 64>(const board_array_t<64> *, const board_array_t<64> *);
-// template int solve_with_device_stack<N, 64>(const FrontierConfig &);

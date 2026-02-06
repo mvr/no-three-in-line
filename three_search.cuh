@@ -147,7 +147,6 @@ __device__ int cell_branch_score(const typename Traits::Board &board,
   score += Traits::kCellBranchWRowUnknown * static_cast<int>(row_unknown);
   score += Traits::kCellBranchWColOn * static_cast<int>(col_on);
   score -= Traits::kCellBranchWColOff * static_cast<int>(col_off);
-  // score -= Traits::kCellBranchWEndpointOff * static_cast<int>(endpoint_off);
   score -= Traits::kCellBranchWEndpointOn * static_cast<int>(endpoint_on);
   return score;
 }
@@ -231,7 +230,7 @@ __global__ void initialize_stack_kernel(typename Traits::Stack *stack) {
 template <typename Traits>
 __global__ void initialize_stack_seed_kernel(typename Traits::Stack *stack,
                                              typename Traits::Problem seed) {
-  auto board = Traits::load_board(seed);
+  auto board = Traits::Board::load_from(seed.known_on, seed.known_off);
   board.propagate();
   if (!board.consistent()) {
     stats_record(StatId::InconsistentNodes);
@@ -257,7 +256,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
   }
 
   const typename Traits::Problem &problem = stack->problems[problem_idx];
-  auto board = Traits::load_board(problem);
+  auto board = Traits::Board::load_from(problem.known_on, problem.known_off);
 
   if (!board.consistent()) {
     stats_record(StatId::InconsistentNodes);
@@ -267,7 +266,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
   stats_record(StatId::NodesVisited);
 
   ForcedCell forced{};
-  LexStatus canonical = Traits::canonical_with_forced(board, forced);
+  LexStatus canonical = board.canonical_with_forced(forced);
   if (canonical == LexStatus::Greater) {
     stats_record(StatId::CanonicalSkips);
     return;
@@ -280,7 +279,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
     const bool above_min = !use_min_on || (on_pop >= min_on);
     const bool emit = above_min && reached_steps;
 
-    if (Traits::complete(board)) {
+    if (board.complete()) {
       output_buffer_push<Traits::kW>(output, board.known_on, board.known_off);
       return;
     }
@@ -290,7 +289,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
       return;
     }
   } else {
-    if (Traits::complete(board)) {
+    if (board.complete()) {
       stats_record(StatId::Solutions);
       output_buffer_push<Traits::kW>(output, board.known_on, board.known_off);
       return;
@@ -303,7 +302,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
     return;
   }
 
-  auto vulnerable = Traits::vulnerable(board);
+  auto vulnerable = board.vulnerable();
   if (!vulnerable.empty()) {
     auto cell = Traits::pick_preferred_branch_cell(vulnerable);
     stats_record(StatId::VulnerableBranches);
@@ -311,7 +310,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
     return;
   }
 
-  auto semivulnerable = Traits::semivulnerable(board);
+  auto semivulnerable = board.semivulnerable();
   if (!semivulnerable.empty()) {
     auto cell = Traits::pick_preferred_branch_cell(semivulnerable);
     stats_record(StatId::SemiVulnerableBranches);
@@ -319,7 +318,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
     return;
   }
 
-  auto quasivulnerable = Traits::quasivulnerable(board);
+  auto quasivulnerable = board.quasivulnerable();
   if (!quasivulnerable.empty()) {
     auto cell = Traits::pick_preferred_branch_cell(quasivulnerable);
     stats_record(StatId::QuasiVulnerableBranches);

@@ -78,8 +78,5 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (N > 32) {
-    return solve_with_device_stack<N, 64>(config);
-  }
   return solve_with_device_stack<N, 32>(config);
 }

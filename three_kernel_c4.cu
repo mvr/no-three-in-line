@@ -36,28 +36,6 @@ __global__ void init_c4_line_table_kernel(uint32_t *table) {
 }
 
 template <unsigned N>
-void init_line_table_c4_host() {
-  static bool initialized = false;
-  static uint32_t *d_table = nullptr;
-  if (initialized) {
-    return;
-  }
-  initialized = true;
-
-  constexpr unsigned cell_count = N * N;
-  constexpr size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
-  constexpr size_t total_rows = total_entries * LINE_TABLE_ROWS;
-
-  cudaMalloc((void **)&d_table, total_rows * sizeof(uint32_t));
-
-  const unsigned blocks = static_cast<unsigned>(total_entries);
-  init_c4_line_table_kernel<N><<<blocks, 32>>>(d_table);
-  cudaDeviceSynchronize();
-
-  cudaMemcpyToSymbol(g_c4_line_table_32, &d_table, sizeof(d_table));
-}
-
-template <unsigned N>
 __device__ void resolve_outcome_row(const ThreeBoardC4<N> &board,
                                     unsigned ix,
                                     DeviceStack<32> *stack) {
@@ -126,14 +104,6 @@ struct C4Traits {
   static constexpr unsigned kW = 32;
   static constexpr unsigned kSymForceMaxOn = (N / 2);
 
-  // These are currently unused
-  static constexpr unsigned kCellBranchRowScoreThreshold = 60;
-  static constexpr int kCellBranchWColUnknown = 3;
-  static constexpr int kCellBranchWRowUnknown = 4;
-  static constexpr int kCellBranchWColOn = 3;
-  static constexpr int kCellBranchWColOff = 8;
-  static constexpr int kCellBranchWEndpointOff = 0;
-  static constexpr int kCellBranchWEndpointOn = 10;
   static constexpr unsigned kRowOnZeroUnknownNum = 7;
   static constexpr unsigned kRowOnZeroUnknownDen = 4;
 
@@ -143,61 +113,32 @@ struct C4Traits {
   using Output = OutputBuffer<32>;
   using Cell = cuda::std::pair<unsigned, unsigned>;
 
+  static void init_line_table_host() {
+    static bool initialized = false;
+    static uint32_t *d_table = nullptr;
+    if (initialized) {
+      return;
+    }
+    initialized = true;
+
+    constexpr unsigned cell_count = N * N;
+    constexpr size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
+    constexpr size_t total_rows = total_entries * LINE_TABLE_ROWS;
+
+    cudaMalloc((void **)&d_table, total_rows * sizeof(uint32_t));
+
+    const unsigned blocks = static_cast<unsigned>(total_entries);
+    init_c4_line_table_kernel<N><<<blocks, 32>>>(d_table);
+    cudaDeviceSynchronize();
+
+    cudaMemcpyToSymbol(g_c4_line_table_32, &d_table, sizeof(d_table));
+  }
+
   static void init_host() {
     init_lookup_tables_host();
     init_relevant_endpoint_host(N);
     init_relevant_endpoint_host_64(ThreeBoardC4<N>::FULL_N);
-    init_line_table_c4_host<N>();
-  }
-
-  _DI_ static LexStatus canonical_with_forced(Board &board, ForcedCell &forced) {
-    BitBoard<32> diag_on = board.known_on.flip_diagonal();
-    BitBoard<32> diag_off = board.known_off.flip_diagonal();
-    BitBoard<32> bounds = Board::bounds();
-    diag_on &= bounds;
-    diag_off &= bounds;
-    ForceCandidate local_force{};
-    LexStatus order = compare_with_unknowns_forced<32>(board.known_on,
-                                                       board.known_off,
-                                                       diag_on,
-                                                       diag_off,
-                                                       bounds,
-                                                       local_force);
-    if (order == LexStatus::Unknown && local_force.has_force) {
-      forced.has_force = true;
-      forced.force_on = local_force.force_on;
-      auto cell = local_force.cell;
-      if (local_force.on_b) {
-        cell = {cell.second, cell.first};
-      }
-      forced.cell = cell;
-    }
-    return order;
-  }
-
-  _DI_ static Board load_board(const Problem &problem) {
-    Board board;
-    board.known_on = BitBoard<32>::load(problem.known_on.data());
-    board.known_off = BitBoard<32>::load(problem.known_off.data());
-    board.apply_bounds();
-    return board;
-  }
-
-  _DI_ static bool complete(const Board &board) {
-    BitBoard<32> unknown = ~(board.known_on | board.known_off) & Board::bounds();
-    return unknown.empty();
-  }
-
-  _DI_ static BitBoard<32> vulnerable(const Board &board) {
-    return board.vulnerable();
-  }
-
-  _DI_ static BitBoard<32> semivulnerable(const Board &board) {
-    return board.semivulnerable();
-  }
-
-  _DI_ static BitBoard<32> quasivulnerable(const Board &board) {
-    return board.quasivulnerable();
+    init_line_table_host();
   }
 
   _DI_ static Cell pick_preferred_branch_cell(const BitBoard<32> &mask) {

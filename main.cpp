@@ -80,21 +80,12 @@ int main(int argc, char **argv) {
     }
   }
 
-  // if (N > 32) {
-  //   if (has_seed) {
-  //     board_array_t<64> seed_on = seed_on_rle.empty() ? board_array_t<64>{} : parse_rle<64>(seed_on_rle);
-  //     board_array_t<64> seed_off = seed_off_rle.empty() ? board_array_t<64>{} : parse_rle<64>(seed_off_rle);
-  //     return solve_with_device_stack<N, 64>(&seed_on, &seed_off);
-  //   }
-  //   return solve_with_device_stack<N, 64>();
-  // } else {
-    if (has_seed) {
-      board_array_t<32> seed_on = seed_on_rle.empty() ? board_array_t<32>{} : parse_rle<32>(seed_on_rle);
-      board_array_t<32> seed_off = seed_off_rle.empty() ? board_array_t<32>{} : parse_rle<32>(seed_off_rle);
-      return solve_with_device_stack<N, 32>(&seed_on, &seed_off);
-    }
-    return solve_with_device_stack<N, 32>();
-  // }
+  if (has_seed) {
+    board_array_t<32> seed_on = seed_on_rle.empty() ? board_array_t<32>{} : parse_rle<32>(seed_on_rle);
+    board_array_t<32> seed_off = seed_off_rle.empty() ? board_array_t<32>{} : parse_rle<32>(seed_off_rle);
+    return solve_with_device_stack<N, 32>(&seed_on, &seed_off);
+  }
+  return solve_with_device_stack<N, 32>();
 }
 
 // Last pre-multistream commit:

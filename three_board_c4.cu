@@ -27,6 +27,10 @@ struct ThreeBoardC4 {
 
   _DI_ bool consistent() const;
   _DI_ unsigned unknown_pop() const;
+  _DI_ bool complete() const;
+  _DI_ LexStatus canonical_with_forced(ForcedCell &forced) const;
+  static _DI_ ThreeBoardC4<N> load_from(const board_array_t<32> &on,
+                                        const board_array_t<32> &off);
   _DI_ bool operator==(const ThreeBoardC4<N> &other) const;
 
   _DI_ ThreeBoardC4<N> force_orthogonal() const;
@@ -111,6 +115,48 @@ _DI_ bool ThreeBoardC4<N>::consistent() const {
 template <unsigned N>
 _DI_ unsigned ThreeBoardC4<N>::unknown_pop() const {
   return N * N - (known_on | known_off).pop();
+}
+
+template <unsigned N>
+_DI_ bool ThreeBoardC4<N>::complete() const {
+  BitBoard<32> unknown = ~(known_on | known_off) & bounds();
+  return unknown.empty();
+}
+
+template <unsigned N>
+_DI_ LexStatus ThreeBoardC4<N>::canonical_with_forced(ForcedCell &forced) const {
+  BitBoard<32> diag_on = known_on.flip_diagonal();
+  BitBoard<32> diag_off = known_off.flip_diagonal();
+  BitBoard<32> bds = bounds();
+  diag_on &= bds;
+  diag_off &= bds;
+  ForceCandidate local_force{};
+  LexStatus order = compare_with_unknowns_forced<32>(known_on,
+                                                     known_off,
+                                                     diag_on,
+                                                     diag_off,
+                                                     bds,
+                                                     local_force);
+  if (order == LexStatus::Unknown && local_force.has_force) {
+    forced.has_force = true;
+    forced.force_on = local_force.force_on;
+    auto cell = local_force.cell;
+    if (local_force.on_b) {
+      cell = {cell.second, cell.first};
+    }
+    forced.cell = cell;
+  }
+  return order;
+}
+
+template <unsigned N>
+_DI_ ThreeBoardC4<N> ThreeBoardC4<N>::load_from(const board_array_t<32> &on,
+                                                const board_array_t<32> &off) {
+  ThreeBoardC4<N> board;
+  board.known_on = BitBoard<32>::load(on.data());
+  board.known_off = BitBoard<32>::load(off.data());
+  board.apply_bounds();
+  return board;
 }
 
 template <unsigned N>

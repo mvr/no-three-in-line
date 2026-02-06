@@ -33,6 +33,9 @@ struct ThreeBoard {
   _DI_ unsigned unknown_pop() const;
   _DI_ LexStatus is_canonical_orientation() const;
   _DI_ LexStatus is_canonical_orientation_with_forced(ForcedCell &forced) const;
+  _DI_ LexStatus canonical_with_forced(ForcedCell &forced) const;
+  static _DI_ ThreeBoard<N, W> load_from(const board_array_t<W> &on,
+                                         const board_array_t<W> &off);
 
   _DI_ ThreeBoard<N, W> force_orthogonal_horiz() const;
   _DI_ ThreeBoard<N, W> force_orthogonal_vert() const;
@@ -358,6 +361,20 @@ _DI_ LexStatus ThreeBoard<N, W>::is_canonical_orientation_with_forced(ForcedCell
   }
 
   return LexStatus::Less;
+}
+
+template <unsigned N, unsigned W>
+_DI_ LexStatus ThreeBoard<N, W>::canonical_with_forced(ForcedCell &forced) const {
+  return is_canonical_orientation_with_forced(forced);
+}
+
+template <unsigned N, unsigned W>
+_DI_ ThreeBoard<N, W> ThreeBoard<N, W>::load_from(const board_array_t<W> &on,
+                                                  const board_array_t<W> &off) {
+  ThreeBoard<N, W> board;
+  board.known_on = BitBoard<W>::load(on.data());
+  board.known_off = BitBoard<W>::load(off.data());
+  return board;
 }
 
 template <unsigned N, unsigned W>
