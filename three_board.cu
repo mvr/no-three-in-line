@@ -453,7 +453,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
   ThreeBoard<N, W> result = *this;
 
   if constexpr (W == 32) {
-    const BinaryCountSaturating on_count = count_vertically_saturating<32>(known_on.state);
+    const BinaryCountSaturating on_count = BinaryCountSaturating<32>::vertical(known_on.state);
     const uint32_t on_count_eq_2 = on_count.bit1 & ~on_count.bit0;
     result.known_off.state |= ~known_on.state & on_count_eq_2;
 
@@ -463,7 +463,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
 
     BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
 
-    const BinaryCountSaturating not_off_count = count_vertically_saturating<32>(notKnownOff.state);
+    const BinaryCountSaturating not_off_count = BinaryCountSaturating<32>::vertical(notKnownOff.state);
     const uint32_t not_off_count_eq_2 = not_off_count.bit1 & ~not_off_count.bit0;
     result.known_on.state |= ~known_off.state & not_off_count_eq_2;
 
@@ -471,7 +471,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     result.known_on.state |= not_off_count_lt_2;
     result.known_off.state |= not_off_count_lt_2;
   } else {
-    const BinaryCountSaturating on_count_xz = count_vertically_saturating<32>(known_on.state.x) + count_vertically_saturating<32>(known_on.state.z);
+    const BinaryCountSaturating on_count_xz = BinaryCountSaturating<32>::vertical(known_on.state.x) + BinaryCountSaturating<32>::vertical(known_on.state.z);
     const uint32_t on_count_xz_eq_2 = on_count_xz.bit1 & ~on_count_xz.bit0;
     result.known_off.state.x |= ~known_on.state.x & on_count_xz_eq_2;
     result.known_off.state.z |= ~known_on.state.z & on_count_xz_eq_2;
@@ -480,7 +480,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     result.known_on.state.x |= on_count_xz_gt_2;
     result.known_off.state.x |= on_count_xz_gt_2;
 
-    const BinaryCountSaturating on_count_yw = count_vertically_saturating<32>(known_on.state.y) + count_vertically_saturating<32>(known_on.state.w);
+    const BinaryCountSaturating on_count_yw = BinaryCountSaturating<32>::vertical(known_on.state.y) + BinaryCountSaturating<32>::vertical(known_on.state.w);
     const uint32_t on_count_yw_eq_2 = on_count_yw.bit1 & ~on_count_yw.bit0;
     result.known_off.state.y |= ~known_on.state.y & on_count_yw_eq_2;
     result.known_off.state.w |= ~known_on.state.w & on_count_yw_eq_2;
@@ -491,7 +491,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
 
     BitBoard<W> notKnownOff = ~known_off & ThreeBoard<N, W>::bounds();
 
-    const BinaryCountSaturating not_off_count_xz = count_vertically_saturating<32>(notKnownOff.state.x) + count_vertically_saturating<32>(notKnownOff.state.z);
+    const BinaryCountSaturating not_off_count_xz = BinaryCountSaturating<32>::vertical(notKnownOff.state.x) + BinaryCountSaturating<32>::vertical(notKnownOff.state.z);
     const uint32_t not_off_count_xz_eq_2 = not_off_count_xz.bit1 & ~not_off_count_xz.bit0;
     result.known_on.state.x |= ~known_off.state.x & not_off_count_xz_eq_2;
     result.known_on.state.z |= ~known_off.state.z & not_off_count_xz_eq_2;
@@ -500,7 +500,7 @@ _DI_ ThreeBoard<N, W> ThreeBoard<N, W>::force_orthogonal_vert() const {
     result.known_on.state.x |= not_off_count_xz_lt_2;
     result.known_off.state.x |= not_off_count_xz_lt_2;
 
-    const BinaryCountSaturating not_off_count_yw = count_vertically_saturating<32>(notKnownOff.state.y) + count_vertically_saturating<32>(notKnownOff.state.w);
+    const BinaryCountSaturating not_off_count_yw = BinaryCountSaturating<32>::vertical(notKnownOff.state.y) + BinaryCountSaturating<32>::vertical(notKnownOff.state.w);
     const uint32_t not_off_count_yw_eq_2 = not_off_count_yw.bit1 & ~not_off_count_yw.bit0;
     result.known_on.state.y |= ~known_off.state.y & not_off_count_yw_eq_2;
     result.known_on.state.w |= ~known_off.state.w & not_off_count_yw_eq_2;
@@ -536,9 +536,9 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const {
 
     // Vulnerable vertically
     {
-      const BinaryCount<32> on_count = count_vertically<32>(known_on.state);
+      const BinaryCount<32> on_count = BinaryCount<32>::vertical(known_on.state);
       BitBoard<32> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
-      const BinaryCount<32> unknown_count = count_vertically<32>(unknown.state);
+      const BinaryCount<32> unknown_count = BinaryCount<32>::vertical(unknown.state);
 
       uint32_t vulnerable_column =
           (on_count.bit0 & ~on_count.bit1 & ~on_count.overflow &
@@ -578,8 +578,8 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const {
     {
       BitBoard<64> unknown = ~known_on & ~known_off & ThreeBoard<N, W>::bounds();
 
-      const BinaryCount<32> on_count_xz = count_vertically<32>(known_on.state.x) + count_vertically<32>(known_on.state.z);
-      const BinaryCount<32> unknown_count_xz = count_vertically<32>(unknown.state.x) + count_vertically<32>(unknown.state.z);
+      const BinaryCount<32> on_count_xz = BinaryCount<32>::vertical(known_on.state.x) + BinaryCount<32>::vertical(known_on.state.z);
+      const BinaryCount<32> unknown_count_xz = BinaryCount<32>::vertical(unknown.state.x) + BinaryCount<32>::vertical(unknown.state.z);
 
       uint32_t vulnerable_column_xz =
           (on_count_xz.bit0 & ~on_count_xz.bit1 & ~on_count_xz.overflow &
@@ -590,8 +590,8 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const {
       result.state.x |= vulnerable_column_xz;
       result.state.z |= vulnerable_column_xz;
 
-      const BinaryCount<32> on_count_yw = count_vertically<32>(known_on.state.y) + count_vertically<32>(known_on.state.w);
-      const BinaryCount<32> unknown_count_yw = count_vertically<32>(unknown.state.y) + count_vertically<32>(unknown.state.w);
+      const BinaryCount<32> on_count_yw = BinaryCount<32>::vertical(known_on.state.y) + BinaryCount<32>::vertical(known_on.state.w);
+      const BinaryCount<32> unknown_count_yw = BinaryCount<32>::vertical(unknown.state.y) + BinaryCount<32>::vertical(unknown.state.w);
 
       uint32_t vulnerable_column_yw =
           (on_count_yw.bit0 & ~on_count_yw.bit1 & ~on_count_yw.overflow &
@@ -625,8 +625,8 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
     }
 
     BitBoard<32> unknown = ~known_on & ~known_off & bounds;
-    const BinaryCountSaturating3<32> on_count = count_vertically_saturating3<32>(known_on.state);
-    const BinaryCountSaturating3<32> unknown_count = count_vertically_saturating3<32>(unknown.state);
+    const BinaryCountSaturating3<32> on_count = BinaryCountSaturating3<32>::vertical(known_on.state);
+    const BinaryCountSaturating3<32> unknown_count = BinaryCountSaturating3<32>::vertical(unknown.state);
     const uint32_t on_zero = on_count.template eq_target<0>();
     const uint32_t unknown_eq = unknown_count.template eq_target<UnknownTarget>();
     result.state |= on_zero & unknown_eq;
@@ -650,9 +650,9 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
     BitBoard<64> unknown = ~known_on & ~known_off & bounds;
 
     const BinaryCountSaturating3<32> on_count_xz =
-        count_vertically_saturating3<32>(known_on.state.x) + count_vertically_saturating3<32>(known_on.state.z);
+        BinaryCountSaturating3<32>::vertical(known_on.state.x) + BinaryCountSaturating3<32>::vertical(known_on.state.z);
     const BinaryCountSaturating3<32> unknown_count_xz =
-        count_vertically_saturating3<32>(unknown.state.x) + count_vertically_saturating3<32>(unknown.state.z);
+        BinaryCountSaturating3<32>::vertical(unknown.state.x) + BinaryCountSaturating3<32>::vertical(unknown.state.z);
     const uint32_t on_zero_xz = on_count_xz.template eq_target<0>();
     const uint32_t unknown_eq_xz = unknown_count_xz.template eq_target<UnknownTarget>();
     const uint32_t column_xz = on_zero_xz & unknown_eq_xz;
@@ -660,9 +660,9 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
     result.state.z |= column_xz;
 
     const BinaryCountSaturating3<32> on_count_yw =
-        count_vertically_saturating3<32>(known_on.state.y) + count_vertically_saturating3<32>(known_on.state.w);
+        BinaryCountSaturating3<32>::vertical(known_on.state.y) + BinaryCountSaturating3<32>::vertical(known_on.state.w);
     const BinaryCountSaturating3<32> unknown_count_yw =
-        count_vertically_saturating3<32>(unknown.state.y) + count_vertically_saturating3<32>(unknown.state.w);
+        BinaryCountSaturating3<32>::vertical(unknown.state.y) + BinaryCountSaturating3<32>::vertical(unknown.state.w);
     const uint32_t on_zero_yw = on_count_yw.template eq_target<0>();
     const uint32_t unknown_eq_yw = unknown_count_yw.template eq_target<UnknownTarget>();
     const uint32_t column_yw = on_zero_yw & unknown_eq_yw;

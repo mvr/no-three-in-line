@@ -158,8 +158,8 @@ _DI_ ThreeBoardC4<N> ThreeBoardC4<N>::force_orthogonal() const {
 
   const board_row_t<32> lane_bit = 1u << (threadIdx.x & 31);
 
-  const BinaryCountSaturating<32> row_on_counter = count_horizontally_saturating<32>(known_on.state);
-  const BinaryCountSaturating<32> col_on_counter = count_vertically_saturating<32>(known_on.state);
+  const BinaryCountSaturating<32> row_on_counter = BinaryCountSaturating<32>::horizontal(known_on.state);
+  const BinaryCountSaturating<32> col_on_counter = BinaryCountSaturating<32>::vertical(known_on.state);
   const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
 
   const board_row_t<32> total_on_eq_2 = total_on_counter.bit1 & ~total_on_counter.bit0;
@@ -179,8 +179,8 @@ _DI_ ThreeBoardC4<N> ThreeBoardC4<N>::force_orthogonal() const {
 
   BitBoard<32> not_known_off = (~known_off) & bounds();
 
-  const BinaryCountSaturating<32> row_not_off_counter = count_horizontally_saturating<32>(not_known_off.state);
-  const BinaryCountSaturating<32> col_not_off_counter = count_vertically_saturating<32>(not_known_off.state);
+  const BinaryCountSaturating<32> row_not_off_counter = BinaryCountSaturating<32>::horizontal(not_known_off.state);
+  const BinaryCountSaturating<32> col_not_off_counter = BinaryCountSaturating<32>::vertical(not_known_off.state);
   const BinaryCountSaturating<32> total_not_off_counter = row_not_off_counter + col_not_off_counter;
 
   const board_row_t<32> total_not_off_eq_2 = total_not_off_counter.bit1 & ~total_not_off_counter.bit0;
@@ -209,12 +209,12 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::vulnerable() const {
 
   BitBoard<32> unknown = (~known_on & ~known_off) & bounds();
 
-  const BinaryCountSaturating<32> row_on_counter = count_horizontally_saturating<32>(known_on.state);
-  const BinaryCountSaturating<32> col_on_counter = count_vertically_saturating<32>(known_on.state);
+  const BinaryCountSaturating<32> row_on_counter = BinaryCountSaturating<32>::horizontal(known_on.state);
+  const BinaryCountSaturating<32> col_on_counter = BinaryCountSaturating<32>::vertical(known_on.state);
   const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
 
-  const BinaryCountSaturating3<32> row_unknown_counter = count_horizontally_saturating3<32>(unknown.state);
-  const BinaryCountSaturating3<32> col_unknown_counter = count_vertically_saturating3<32>(unknown.state);
+  const BinaryCountSaturating3<32> row_unknown_counter = BinaryCountSaturating3<32>::horizontal(unknown.state);
+  const BinaryCountSaturating3<32> col_unknown_counter = BinaryCountSaturating3<32>::vertical(unknown.state);
   const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
 
   const board_row_t<32> total_on_eq_0 = total_on_counter.template eq_target<0>();
@@ -246,12 +246,12 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::semivulnerable_like() const {
 
   BitBoard<32> unknown = (~known_on & ~known_off) & bounds();
 
-  const BinaryCountSaturating<32> row_on_counter = count_horizontally_saturating<32>(known_on.state);
-  const BinaryCountSaturating<32> col_on_counter = count_vertically_saturating<32>(known_on.state);
+  const BinaryCountSaturating<32> row_on_counter = BinaryCountSaturating<32>::horizontal(known_on.state);
+  const BinaryCountSaturating<32> col_on_counter = BinaryCountSaturating<32>::vertical(known_on.state);
   const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
 
-  const BinaryCountSaturating3<32> row_unknown_counter = count_horizontally_saturating3<32>(unknown.state);
-  const BinaryCountSaturating3<32> col_unknown_counter = count_vertically_saturating3<32>(unknown.state);
+  const BinaryCountSaturating3<32> row_unknown_counter = BinaryCountSaturating3<32>::horizontal(unknown.state);
+  const BinaryCountSaturating3<32> col_unknown_counter = BinaryCountSaturating3<32>::vertical(unknown.state);
   const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
 
   const board_row_t<32> total_on_eq_0 = total_on_counter.template eq_target<0>();
