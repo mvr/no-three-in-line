@@ -101,7 +101,7 @@ template <unsigned N, unsigned W>
 struct D2Traits {
   static constexpr unsigned kN = ThreeBoardD2<N, W>::FULL_N;
   static constexpr unsigned kW = W;
-  static constexpr unsigned kSymForceMaxOn = 7;
+  static constexpr unsigned kSymForceMaxOn = N / 2;
   static constexpr unsigned kRowOnZeroUnknownNum = 8;
   static constexpr unsigned kRowOnZeroUnknownDen = 4;
   static constexpr bool kEnableSemiQuasi = false;
