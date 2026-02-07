@@ -11,30 +11,6 @@
 #include "params.hpp"
 #include "three_search.cuh"
 
-template <unsigned N, unsigned W>
-__device__ unsigned pick_center_col(board_row_t<W> bits) {
-  constexpr int center_right = static_cast<int>(N / 2);
-  constexpr int center_left = static_cast<int>((N - 1) / 2);
-  board_row_t<W> right_mask = bits & (~((board_row_t<W>(1) << center_right) - 1));
-  board_row_t<W> left_mask = bits & ((board_row_t<W>(1) << (center_left + 1)) - 1);
-
-  int right = find_first_set<W>(right_mask);
-  int left = find_last_set<W>(left_mask);
-
-  bool has_right = right_mask != 0;
-  bool has_left = left_mask != 0;
-
-  if (!has_left && has_right)
-    return right;
-
-  if (!has_right && has_left)
-    return left;
-
-  int dist_right = right - center_right;
-  int dist_left = center_left - left;
-  return static_cast<unsigned>(dist_right <= dist_left ? right : left);
-}
-
 template <unsigned N, unsigned W, Axis Dir>
 __device__ void resolve_outcome_row(const ThreeBoard<N, W> board, unsigned ix, DeviceStack<W> *stack) {
   board_row_t<W> line_known_on, line_known_off;
@@ -87,6 +63,7 @@ struct AsymTraits {
   static constexpr unsigned kN = N;
   static constexpr unsigned kW = W;
   static constexpr unsigned kSymForceMaxOn = N - 2;
+  static constexpr bool kEnableSemiQuasi = true;
 
   static constexpr unsigned kCellBranchRowScoreThreshold = 20;
 

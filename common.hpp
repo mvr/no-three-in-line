@@ -111,6 +111,30 @@ _HD_ int count_trailing_zeros(board_row_t<W> x) {
   }
 }
 
+template <unsigned N, unsigned W>
+_HD_ unsigned pick_center_col(board_row_t<W> bits) {
+  constexpr int center_right = static_cast<int>(N / 2);
+  constexpr int center_left = static_cast<int>((N - 1) / 2);
+  board_row_t<W> right_mask = bits & (~((board_row_t<W>(1) << center_right) - 1));
+  board_row_t<W> left_mask = bits & ((board_row_t<W>(1) << (center_left + 1)) - 1);
+
+  int right = find_first_set<W>(right_mask);
+  int left = find_last_set<W>(left_mask);
+
+  bool has_right = right_mask != 0;
+  bool has_left = left_mask != 0;
+
+  if (!has_left && has_right)
+    return right;
+
+  if (!has_right && has_left)
+    return left;
+
+  int dist_right = right - center_right;
+  int dist_left = center_left - left;
+  return static_cast<unsigned>(dist_right <= dist_left ? right : left);
+}
+
 // Also stolen from cpads
 template<uint8_t Op>
 _HD_ uint32_t lop3(uint32_t x, uint32_t y, uint32_t z) {
