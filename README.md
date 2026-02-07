@@ -31,9 +31,12 @@ can be pasted into [Golly](https://golly.sourceforge.io/), for
 example. So far a few new values have been calculated over what was
 previously known:
 
-* $19 \times 19$ solutions up to symmetry: 32577
-* $44 \times 44$ solutions with 4-fold rotational symmetry: 1016
-* $46 \times 46$ solutions with 4-fold rotational symmetry: 1366
+* Any symmetry:
+  * $19 \times 19$: 32577
+* 4-fold rotational symmetry:
+  * $44 \times 44$: 1016
+  * $46 \times 46$: 1366
+  * $48 \times 48$: 2124
 
 ## Compiling
 
