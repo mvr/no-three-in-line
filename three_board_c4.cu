@@ -43,19 +43,9 @@ struct ThreeBoardC4 {
 
   static constexpr unsigned FULL_N = 2 * N;
   static constexpr unsigned FULL_W = (FULL_N <= 32) ? 32 : 64;
-  using FullBoard = ThreeBoard<FULL_N, FULL_W>;
-  using FullBitBoard = BitBoard<FULL_W>;
-
-  static _DI_ FullBitBoard expand_mask(BitBoard<32> mask);
-  static _DI_ BitBoard<32> project_mask(const FullBitBoard &mask);
-  _DI_ FullBoard expand_to_full() const;
-  _DI_ void project_from_full(const FullBoard &full);
 
   // Helpers for reasoning about orbits.
   static _DI_ cuda::std::pair<int, int> rotate90(cuda::std::pair<int, int> p);
-  static _DI_ cuda::std::pair<int, int> apply_rotation(cuda::std::pair<int, int> p, int quarter_turns);
-  static _DI_ bool in_domain(cuda::std::pair<int, int> p);
-  static _DI_ cuda::std::pair<int, int> fold_to_domain(cuda::std::pair<int, int> p, int &rotation);
   static _DI_ cuda::std::array<cuda::std::pair<int, int>, 4> orbit(cuda::std::pair<int, int> p);
   template <typename Visitor>
   static _DI_ void for_each_orbit_point(cuda::std::pair<int, int> p, Visitor &&visitor);
@@ -74,8 +64,6 @@ struct ThreeBoardC4 {
 
   _DI_ void propagate();
   _DI_ void propagate_slow();
-
-  _DI_ cuda::std::pair<unsigned, unsigned> most_constrained_row() const;
 };
 
 // --- Inline implementation -------------------------------------------------
@@ -325,138 +313,11 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::quasivulnerable() const {
   return semivulnerable_like<5>();
 }
 
-// TODO just use symmetry helpers
-template <unsigned N>
-_DI_ typename ThreeBoardC4<N>::FullBoard ThreeBoardC4<N>::expand_to_full() const {
-  FullBoard full;
-
-  for (int y = 0; y < static_cast<int>(N); ++y) {
-    const board_row_t<32> row_on = known_on.row(y);
-    const board_row_t<32> row_off = known_off.row(y);
-
-    for (int x = 0; x < static_cast<int>(N); ++x) {
-      const board_row_t<32> bit = board_row_t<32>(1u) << x;
-      const bool is_on = (row_on & bit) != 0;
-      const bool is_off = (row_off & bit) != 0;
-
-      if (!is_on && !is_off)
-        continue;
-
-      for_each_orbit_point({x, y}, [&](cuda::std::pair<int, int> pt) {
-        const int board_x = pt.first + static_cast<int>(N);
-        const int board_y = pt.second + static_cast<int>(N);
-        if (is_on) {
-          full.known_on.set(board_x, board_y);
-        }
-        if (is_off) {
-          full.known_off.set(board_x, board_y);
-        }
-      });
-    }
-  }
-
-  return full;
-}
-
-template <unsigned N>
-_DI_ void ThreeBoardC4<N>::project_from_full(const FullBoard &full) {
-  BitBoard<32> proj_on;
-  BitBoard<32> proj_off;
-
-  for (int y = 0; y < static_cast<int>(N); ++y) {
-    for (int x = 0; x < static_cast<int>(N); ++x) {
-      const unsigned fx = static_cast<unsigned>(x + N);
-      const unsigned fy = static_cast<unsigned>(y + N);
-      if (full.known_on.get(fx, fy)) {
-        proj_on.set(x, y);
-      }
-      if (full.known_off.get(fx, fy)) {
-        proj_off.set(x, y);
-      }
-    }
-  }
-
-  known_on = proj_on;
-  known_off = proj_off;
-  apply_bounds();
-}
-
-template <unsigned N>
-_DI_ typename ThreeBoardC4<N>::FullBitBoard ThreeBoardC4<N>::expand_mask(BitBoard<32> mask) {
-  FullBitBoard result;
-
-  cuda::std::pair<int, int> cell;
-  while (mask.some_on_if_any(cell)) {
-    mask.erase(cell);
-
-    for_each_orbit_point(cell, [&](cuda::std::pair<int, int> pt) {
-      const int fx = pt.first + static_cast<int>(N);
-      const int fy = pt.second + static_cast<int>(N);
-      result.set(fx, fy);
-    });
-  }
-
-  return result;
-}
-
-template <unsigned N>
-_DI_ BitBoard<32> ThreeBoardC4<N>::project_mask(const FullBitBoard &mask) {
-  BitBoard<32> result;
-
-  for (int y = 0; y < static_cast<int>(N); ++y) {
-    for (int x = 0; x < static_cast<int>(N); ++x) {
-      bool set = false;
-      for_each_orbit_point({x, y}, [&](cuda::std::pair<int, int> pt) {
-        if (set) return;
-        const int fx = pt.first + static_cast<int>(N);
-        const int fy = pt.second + static_cast<int>(N);
-        if (mask.get(fx, fy)) {
-          set = true;
-        }
-      });
-
-      if (set) {
-        result.set(x, y);
-      }
-    }
-  }
-
-  result &= bounds();
-  return result;
-}
-
 // --- Orbit helpers ---------------------------------------------------------
 
 template <unsigned N>
 _DI_ cuda::std::pair<int, int> ThreeBoardC4<N>::rotate90(cuda::std::pair<int, int> p) {
   return {-p.second - 1, p.first};
-}
-
-template <unsigned N>
-_DI_ cuda::std::pair<int, int> ThreeBoardC4<N>::apply_rotation(cuda::std::pair<int, int> p, int quarter_turns) {
-  quarter_turns &= 3;
-  for (int i = 0; i < quarter_turns; ++i) {
-    p = rotate90(p);
-  }
-  return p;
-}
-
-template <unsigned N>
-_DI_ bool ThreeBoardC4<N>::in_domain(cuda::std::pair<int, int> p) {
-  return p.first >= 0 && p.first < static_cast<int>(N) && p.second >= 0 && p.second < static_cast<int>(N);
-}
-
-template <unsigned N>
-_DI_ cuda::std::pair<int, int> ThreeBoardC4<N>::fold_to_domain(cuda::std::pair<int, int> p, int &rotation) {
-  for (int r = 0; r < 4; ++r) {
-    if (in_domain(p)) {
-      rotation = r;
-      return p;
-    }
-    p = rotate90(p);
-  }
-  rotation = 0;
-  return {-1, -1};
 }
 
 template <unsigned N>
@@ -714,42 +575,4 @@ _DI_ void ThreeBoardC4<N>::propagate_slow() {
       return;
     done_ons = known_on;
   } while (!(*this == prev));
-}
-
-template <unsigned N>
-_DI_ cuda::std::pair<unsigned, unsigned>
-ThreeBoardC4<N>::most_constrained_row() const {
-  unsigned row;
-
-  BitBoard<32> unknown = ~(known_on | known_off) & bounds();
-
-  BitBoard<32> known_on_rot = known_on.flip_diagonal();
-  BitBoard<32> unknown_rot = unknown.flip_diagonal();
-
-  unsigned ons = popcount<32>(known_on.state) + popcount<32>(known_on_rot.state);
-  unsigned unknowns = popcount<32>(unknown.state) + popcount<32>(unknown_rot.state);
-
-  // TODO: This should actually be ons == 0, but this way around is much faster!
-  if(ons == 1)
-    unknowns = unknowns * (unknowns + 1) / 2;
-
-  if ((threadIdx.x & 31) >= N || unknowns == 0)
-    unknowns = std::numeric_limits<unsigned>::max();
-
-  row = (threadIdx.x & 31);
-
-  for (int offset = 16; offset > 0; offset /= 2) {
-    unsigned other_row = __shfl_down_sync(0xffffffff, row, offset);
-    unsigned other_unknowns = __shfl_down_sync(0xffffffff, unknowns, offset);
-
-    if (other_unknowns < unknowns) {
-      row = other_row;
-      unknowns = other_unknowns;
-    }
-  }
-
-  row = __shfl_sync(0xffffffff, row, 0);
-  unknowns = __shfl_sync(0xffffffff, unknowns, 0);
-
-  return {row, unknowns};
 }
