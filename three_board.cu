@@ -617,10 +617,9 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
   const BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
 
   if constexpr (W == 32) {
-    unsigned on_pop = popcount<32>(known_on.state);
     unsigned off_pop = popcount<32>(known_off.state);
-    unsigned unknown_pop = N - on_pop - off_pop;
-    if (on_pop == 0 && unknown_pop == UnknownTarget) {
+    unsigned unknown_pop = N - off_pop;
+    if (known_on.state == 0 && unknown_pop == UnknownTarget) {
       result.state = ~(board_row_t<W>)0;
     }
 
@@ -631,18 +630,16 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
     const uint32_t unknown_eq = unknown_count.template eq_target<UnknownTarget>();
     result.state |= on_zero & unknown_eq;
   } else {
-    unsigned on_pop_xy = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
     unsigned off_pop_xy = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
-    unsigned unknown_pop_xy = N - on_pop_xy - off_pop_xy;
-    if (on_pop_xy == 0 && unknown_pop_xy == UnknownTarget) {
+    unsigned unknown_pop_xy = N - off_pop_xy;
+    if ((known_on.state.x | known_on.state.y) == 0 && unknown_pop_xy == UnknownTarget) {
       result.state.x = ~(board_row_t<W>)0;
       result.state.y = ~(board_row_t<W>)0;
     }
 
-    unsigned on_pop_zw = popcount<32>(known_on.state.z) + popcount<32>(known_on.state.w);
     unsigned off_pop_zw = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
-    unsigned unknown_pop_zw = N - on_pop_zw - off_pop_zw;
-    if (on_pop_zw == 0 && unknown_pop_zw == UnknownTarget) {
+    unsigned unknown_pop_zw = N - off_pop_zw;
+    if ((known_on.state.z | known_on.state.w) == 0 && unknown_pop_zw == UnknownTarget) {
       result.state.z = ~(board_row_t<W>)0;
       result.state.w = ~(board_row_t<W>)0;
     }
