@@ -209,31 +209,18 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::vulnerable() const {
 
   BitBoard<32> unknown = (~known_on & ~known_off) & bounds();
 
-  const BinaryCount<32> row_on_counter = count_horizontally<32>(known_on.state);
-  const BinaryCount<32> col_on_counter = count_vertically<32>(known_on.state);
-  const BinaryCount<32> total_on_counter = row_on_counter + col_on_counter;
+  const BinaryCountSaturating<32> row_on_counter = count_horizontally_saturating<32>(known_on.state);
+  const BinaryCountSaturating<32> col_on_counter = count_vertically_saturating<32>(known_on.state);
+  const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
 
-  const BinaryCount<32> row_unknown_counter = count_horizontally<32>(unknown.state);
-  const BinaryCount<32> col_unknown_counter = count_vertically<32>(unknown.state);
-  const BinaryCount<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
+  const BinaryCountSaturating3<32> row_unknown_counter = count_horizontally_saturating3<32>(unknown.state);
+  const BinaryCountSaturating3<32> col_unknown_counter = count_vertically_saturating3<32>(unknown.state);
+  const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
 
-  auto eq0 = [](const BinaryCount<32> &cnt) {
-    return ~cnt.bit0 & ~cnt.bit1 & ~cnt.overflow;
-  };
-  auto eq1 = [](const BinaryCount<32> &cnt) {
-    return cnt.bit0 & ~cnt.bit1 & ~cnt.overflow;
-  };
-  auto eq2 = [](const BinaryCount<32> &cnt) {
-    return ~cnt.bit0 & cnt.bit1 & ~cnt.overflow;
-  };
-  auto eq3 = [](const BinaryCount<32> &cnt) {
-    return cnt.bit0 & cnt.bit1 & ~cnt.overflow;
-  };
-
-  const board_row_t<32> total_on_eq_0 = eq0(total_on_counter);
-  const board_row_t<32> total_on_eq_1 = eq1(total_on_counter);
-  const board_row_t<32> total_unknown_eq_2 = eq2(total_unknown_counter);
-  const board_row_t<32> total_unknown_eq_3 = eq3(total_unknown_counter);
+  const board_row_t<32> total_on_eq_0 = total_on_counter.template eq_target<0>();
+  const board_row_t<32> total_on_eq_1 = total_on_counter.template eq_target<1>();
+  const board_row_t<32> total_unknown_eq_2 = total_unknown_counter.template eq_target<2>();
+  const board_row_t<32> total_unknown_eq_3 = total_unknown_counter.template eq_target<3>();
 
   const board_row_t<32> vulnerable_rows =
     (total_on_eq_1 & total_unknown_eq_2) | (total_on_eq_0 & total_unknown_eq_3);
@@ -251,27 +238,6 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::vulnerable() const {
   return result;
 }
 
-template <unsigned W>
-_DI_ BinaryCountSaturating3<W> count_horizontally_saturating3(unsigned value) {
-  BinaryCountSaturating3<W> result{};
-
-  unsigned pop = popcount<W>(value);
-  bool bit0 = (pop & 1u) != 0u;
-  bool bit1 = (pop & 2u) != 0u;
-  bool bit2 = (pop & 4u) != 0u;
-  if (pop >= 7u) {
-    bit0 = true;
-    bit1 = true;
-    bit2 = true;
-  }
-
-  const unsigned mask = __activemask();
-  result.bit0 = __ballot_sync(mask, bit0);
-  result.bit1 = __ballot_sync(mask, bit1);
-  result.bit2 = __ballot_sync(mask, bit2);
-  return result;
-}
-
 template <unsigned N>
 template <unsigned UnknownTarget>
 _DI_ BitBoard<32> ThreeBoardC4<N>::semivulnerable_like() const {
@@ -280,15 +246,15 @@ _DI_ BitBoard<32> ThreeBoardC4<N>::semivulnerable_like() const {
 
   BitBoard<32> unknown = (~known_on & ~known_off) & bounds();
 
-  const BinaryCount<32> row_on_counter = count_horizontally<32>(known_on.state);
-  const BinaryCount<32> col_on_counter = count_vertically<32>(known_on.state);
-  const BinaryCount<32> total_on_counter = row_on_counter + col_on_counter;
+  const BinaryCountSaturating<32> row_on_counter = count_horizontally_saturating<32>(known_on.state);
+  const BinaryCountSaturating<32> col_on_counter = count_vertically_saturating<32>(known_on.state);
+  const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
 
   const BinaryCountSaturating3<32> row_unknown_counter = count_horizontally_saturating3<32>(unknown.state);
   const BinaryCountSaturating3<32> col_unknown_counter = count_vertically_saturating3<32>(unknown.state);
   const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
 
-  const board_row_t<32> total_on_eq_0 = ~total_on_counter.bit0 & ~total_on_counter.bit1 & ~total_on_counter.overflow;
+  const board_row_t<32> total_on_eq_0 = total_on_counter.template eq_target<0>();
   const board_row_t<32> total_unknown_eq = total_unknown_counter.template eq_target<UnknownTarget>();
 
   const board_row_t<32> semivuln_rows = total_on_eq_0 & total_unknown_eq;

@@ -153,6 +153,23 @@ struct BinaryCountSaturating {
   }
 
   _DI_ void operator+=(const BinaryCountSaturating other) { *this = *this + other; }
+
+  template <unsigned Target>
+  _DI_ board_row_t<W> eq_target() const {
+    static_assert(Target < 8, "eq_target supports targets 0-3");
+    board_row_t<W> mask = ~board_row_t<W>(0);
+    if constexpr (Target & 1) {
+      mask &= bit0;
+    } else {
+      mask &= ~bit0;
+    }
+    if constexpr (Target & 2) {
+      mask &= bit1;
+    } else {
+      mask &= ~bit1;
+    }
+    return mask;
+  }
 };
 
 template <unsigned W>
@@ -251,6 +268,28 @@ _DI_ BinaryCountSaturating<W> count_horizontally_saturating(unsigned value) {
   unsigned pop = popcount<W>(value);
   result.bit0 = __ballot_sync(0xffffffff, pop == 1 || pop > 2);
   result.bit1 = __ballot_sync(0xffffffff, pop >= 2);
+  return result;
+}
+
+// TODO: only works for W=32
+template <unsigned W>
+_DI_ BinaryCountSaturating3<W> count_horizontally_saturating3(unsigned value) {
+  BinaryCountSaturating3<W> result{};
+
+  unsigned pop = popcount<W>(value);
+  bool bit0 = (pop & 1u) != 0u;
+  bool bit1 = (pop & 2u) != 0u;
+  bool bit2 = (pop & 4u) != 0u;
+  if (pop >= 7u) {
+    bit0 = true;
+    bit1 = true;
+    bit2 = true;
+  }
+
+  const unsigned mask = __activemask();
+  result.bit0 = __ballot_sync(mask, bit0);
+  result.bit1 = __ballot_sync(mask, bit1);
+  result.bit2 = __ballot_sync(mask, bit2);
   return result;
 }
 
