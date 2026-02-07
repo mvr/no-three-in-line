@@ -156,49 +156,77 @@ struct D2Traits {
   }
 
   _DI_ static Cell pick_preferred_branch_cell(const BitBoard<W> &mask) {
-    BitBoard<W> remaining = mask;
-    cuda::std::pair<int, int> cell;
-
+    const unsigned lane = threadIdx.x & 31;
+    constexpr unsigned full_n = Board::FULL_N;
     unsigned best_score = 0xffffffffu;
-    int best_dx2 = 0x7fffffff;
-    int best_dy2 = 0x7fffffff;
-    int best_y = 0x7fffffff;
-    int best_x = 0x7fffffff;
+    unsigned best_x = 0;
+    unsigned best_y = 0;
 
     constexpr int center2 = static_cast<int>(Board::FULL_N) - 1;  // 2*(N-0.5)
-
-    while (remaining.some_on_if_any(cell)) {
-      remaining.erase(cell);
-      const int x = cell.first;
-      const int y = cell.second;
-
-      int dx2 = 2 * x - center2;
+    auto consider = [&](unsigned x, unsigned y) {
+      int dx2 = 2 * static_cast<int>(x) - center2;
       if (dx2 < 0) {
         dx2 = -dx2;
       }
-      int dy2 = 2 * y - center2;
+      int dy2 = 2 * static_cast<int>(y) - center2;
       if (dy2 < 0) {
         dy2 = -dy2;
       }
-      const unsigned score =
-          static_cast<unsigned>(dx2 * dx2 + dy2 * dy2);
-
-      if (score < best_score ||
-          (score == best_score && (dx2 < best_dx2 ||
-                                   (dx2 == best_dx2 && (dy2 < best_dy2 ||
-                                                        (dy2 == best_dy2 && (y < best_y ||
-                                                                             (y == best_y && x < best_x)))))))) {
+      const unsigned score = static_cast<unsigned>(dx2 * dx2 + dy2 * dy2);
+      if (score < best_score) {
         best_score = score;
-        best_dx2 = dx2;
-        best_dy2 = dy2;
-        best_y = y;
         best_x = x;
+        best_y = y;
+      }
+    };
+
+    if constexpr (W == 32) {
+      if (lane < N && mask.state != 0) {
+        const unsigned x = pick_center_col<full_n, W>(mask.state);
+        consider(x, lane);
+      }
+    } else {
+      const unsigned row_even = 2 * lane;
+      if (row_even < N) {
+        const uint64_t row_even_bits =
+            static_cast<uint64_t>(mask.state.x) |
+            (static_cast<uint64_t>(mask.state.y) << 32);
+        if (row_even_bits != 0) {
+          const unsigned x = pick_center_col<full_n, W>(row_even_bits);
+          consider(x, row_even);
+        }
+      }
+      const unsigned row_odd = 2 * lane + 1;
+      if (row_odd < N) {
+        const uint64_t row_odd_bits =
+            static_cast<uint64_t>(mask.state.z) |
+            (static_cast<uint64_t>(mask.state.w) << 32);
+        if (row_odd_bits != 0) {
+          const unsigned x = pick_center_col<full_n, W>(row_odd_bits);
+          consider(x, row_odd);
+        }
       }
     }
 
+    for (int offset = 16; offset > 0; offset /= 2) {
+      const unsigned other_score = __shfl_down_sync(0xffffffff, best_score, offset);
+      const unsigned other_x = __shfl_down_sync(0xffffffff, best_x, offset);
+      const unsigned other_y = __shfl_down_sync(0xffffffff, best_y, offset);
+
+      if (other_score < best_score) {
+        best_score = other_score;
+        best_x = other_x;
+        best_y = other_y;
+      }
+    }
+
+    best_score = __shfl_sync(0xffffffff, best_score, 0);
     best_x = __shfl_sync(0xffffffff, best_x, 0);
     best_y = __shfl_sync(0xffffffff, best_y, 0);
-    return {static_cast<unsigned>(best_x), static_cast<unsigned>(best_y)};
+    if (best_score == 0xffffffffu) {
+      return {0u, 0u};
+    }
+    return {best_x, best_y};
   }
 
   _DI_ static unsigned pick_branch_row(const Board &board) {
