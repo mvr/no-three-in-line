@@ -65,8 +65,8 @@ template <unsigned N, unsigned W>
 __device__ void resolve_outcome_row(const ThreeBoardD2<N, W> &board,
                                     unsigned row,
                                     DeviceStack<W> *stack) {
-  constexpr unsigned kFullN = ThreeBoardD2<N, W>::FULL_N;
-  constexpr board_row_t<W> row_mask = (kFullN == W) ? ~board_row_t<W>(0) : ((board_row_t<W>(1) << kFullN) - 1);
+  constexpr unsigned full_n = 2 * N;
+  constexpr board_row_t<W> row_mask = (full_n == W) ? ~board_row_t<W>(0) : ((board_row_t<W>(1) << full_n) - 1);
 
   board_row_t<W> line_known_on = board.known_on.row(row) & row_mask;
   board_row_t<W> line_known_off = board.known_off.row(row) & row_mask;
@@ -79,7 +79,7 @@ __device__ void resolve_outcome_row(const ThreeBoardD2<N, W> &board,
   }
 
   while (remaining != 0) {
-    const unsigned col = pick_center_col<kFullN, W>(remaining);
+    const unsigned col = pick_center_col<full_n, W>(remaining);
 
     ThreeBoardD2<N, W> sub_board = tried_board;
     sub_board.known_on.set({col, row});
@@ -236,7 +236,7 @@ struct D2Traits {
     unsigned best_unknown0 = 0xffffffffu;
     unsigned best_row1 = 0;
     unsigned best_unknown1 = 0xffffffffu;
-    constexpr unsigned kFullN = Board::FULL_N;
+    constexpr unsigned full_n = Board::FULL_N;
 
     auto update_best = [&](unsigned row, unsigned on, unsigned unknown) {
       if (unknown == 0 || on > 1) {
@@ -259,7 +259,7 @@ struct D2Traits {
       if (lane < N) {
         const unsigned on = popcount<32>(board.known_on.state);
         const unsigned off = popcount<32>(board.known_off.state);
-        const unsigned unknown = kFullN - on - off;
+        const unsigned unknown = full_n - on - off;
         update_best(lane, on, unknown);
       }
     } else {
@@ -268,7 +268,7 @@ struct D2Traits {
         if (row_even < N) {
           const unsigned on_even = popcount<32>(board.known_on.state.x) + popcount<32>(board.known_on.state.y);
           const unsigned off_even = popcount<32>(board.known_off.state.x) + popcount<32>(board.known_off.state.y);
-          const unsigned unk_even = kFullN - on_even - off_even;
+          const unsigned unk_even = full_n - on_even - off_even;
           update_best(row_even, on_even, unk_even);
         }
       }
@@ -276,7 +276,7 @@ struct D2Traits {
         const unsigned row_odd = 2 * lane + 1;
         const unsigned on_odd = popcount<32>(board.known_on.state.z) + popcount<32>(board.known_on.state.w);
         const unsigned off_odd = popcount<32>(board.known_off.state.z) + popcount<32>(board.known_off.state.w);
-        const unsigned unk_odd = kFullN - on_odd - off_odd;
+        const unsigned unk_odd = full_n - on_odd - off_odd;
         update_best(row_odd, on_odd, unk_odd);
       }
     }
@@ -326,7 +326,7 @@ struct D2Traits {
       board_row_t<W> row = half[y];
       const unsigned my = Board::FULL_N - 1 - y;
       while (row != 0) {
-        const unsigned x = static_cast<unsigned>(find_first_set<W>(row));
+        const unsigned x = find_first_set<W>(row);
         if constexpr (Board::FULL_W == 32) {
           expanded[y] |= (uint32_t(1) << x);
           expanded[my] |= (uint32_t(1) << x);
