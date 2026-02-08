@@ -22,7 +22,8 @@ struct ThreeBoardD2 {
   static constexpr unsigned FULL_N = 2 * N;
   static constexpr unsigned FULL_W = (FULL_N <= 32) ? 32 : 64;
   static constexpr unsigned LINE_ROWS =
-      (W == 32) ? ((N + 7u) & ~7u) : ((((N + 1u) >> 1) + 7u) & ~7u);
+      LINE_TABLE_FULL_WARP_LOAD ? 32
+                                : ((W == 32) ? ((N + 7u) & ~7u) : ((((N + 1u) >> 1) + 7u) & ~7u));
   static_assert(LINE_ROWS <= 32, "D2 line table rows must fit one warp");
 
   BitBoard<W> known_on;

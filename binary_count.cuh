@@ -106,6 +106,24 @@ struct BinaryCountSaturating {
     result.bit1 = __ballot_sync(0xffffffff, pop >= 2);
     return result;
   }
+
+  static _DI_ BinaryCountSaturating horizontal_interleave(const board_row_t<W> even_value,
+                                                          const board_row_t<W> odd_value) {
+    static_assert(W == 64, "BinaryCountSaturating::horizontal_interleave currently supports W=64 only");
+    BinaryCountSaturating result{};
+
+    const unsigned even_pop = popcount<64>(even_value);
+    const unsigned odd_pop = popcount<64>(odd_value);
+
+    const uint32_t bit0_even = __ballot_sync(0xffffffff, even_pop == 1 || even_pop > 2);
+    const uint32_t bit0_odd = __ballot_sync(0xffffffff, odd_pop == 1 || odd_pop > 2);
+    const uint32_t bit1_even = __ballot_sync(0xffffffff, even_pop >= 2);
+    const uint32_t bit1_odd = __ballot_sync(0xffffffff, odd_pop >= 2);
+
+    result.bit0 = interleave32(bit0_even, bit0_odd);
+    result.bit1 = interleave32(bit1_even, bit1_odd);
+    return result;
+  }
 };
 
 template <unsigned W>
@@ -196,6 +214,45 @@ struct BinaryCountSaturating3 {
     result.bit0 = __ballot_sync(mask, bit0);
     result.bit1 = __ballot_sync(mask, bit1);
     result.bit2 = __ballot_sync(mask, bit2);
+    return result;
+  }
+
+  static _DI_ BinaryCountSaturating3 horizontal_interleave(const board_row_t<W> even_value,
+                                                           const board_row_t<W> odd_value) {
+    static_assert(W == 64, "BinaryCountSaturating3::horizontal_interleave currently supports W=64 only");
+    BinaryCountSaturating3 result{};
+
+    unsigned even_pop = popcount<64>(even_value);
+    unsigned odd_pop = popcount<64>(odd_value);
+
+    bool even_bit0 = (even_pop & 1u) != 0u;
+    bool even_bit1 = (even_pop & 2u) != 0u;
+    bool even_bit2 = (even_pop & 4u) != 0u;
+    if (even_pop >= 7u) {
+      even_bit0 = true;
+      even_bit1 = true;
+      even_bit2 = true;
+    }
+
+    bool odd_bit0 = (odd_pop & 1u) != 0u;
+    bool odd_bit1 = (odd_pop & 2u) != 0u;
+    bool odd_bit2 = (odd_pop & 4u) != 0u;
+    if (odd_pop >= 7u) {
+      odd_bit0 = true;
+      odd_bit1 = true;
+      odd_bit2 = true;
+    }
+
+    const uint32_t bit0_even = __ballot_sync(0xffffffff, even_bit0);
+    const uint32_t bit0_odd = __ballot_sync(0xffffffff, odd_bit0);
+    const uint32_t bit1_even = __ballot_sync(0xffffffff, even_bit1);
+    const uint32_t bit1_odd = __ballot_sync(0xffffffff, odd_bit1);
+    const uint32_t bit2_even = __ballot_sync(0xffffffff, even_bit2);
+    const uint32_t bit2_odd = __ballot_sync(0xffffffff, odd_bit2);
+
+    result.bit0 = interleave32(bit0_even, bit0_odd);
+    result.bit1 = interleave32(bit1_even, bit1_odd);
+    result.bit2 = interleave32(bit2_even, bit2_odd);
     return result;
   }
 };

@@ -92,7 +92,7 @@ struct AsymTraits {
     initialized = true;
 
     const unsigned cell_count = N * N;
-    const unsigned rows = LINE_TABLE_ROWS;
+    const unsigned rows = Board::LINE_ROWS;
     const size_t entry_size = rows;
     const size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
     const size_t total_rows = total_entries * entry_size;

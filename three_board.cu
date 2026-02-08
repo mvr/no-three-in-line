@@ -16,6 +16,9 @@ struct ForcedCell {
 
 template <unsigned N, unsigned W>
 struct ThreeBoard {
+  static constexpr unsigned LINE_ROWS = LINE_TABLE_FULL_WARP_LOAD ? 32 : ((N + 7u) & ~7u);
+  static_assert(W != 32 || LINE_ROWS <= 32, "ThreeBoard line table rows must fit one warp");
+
   BitBoard<W> known_on;
   BitBoard<W> known_off;
 
@@ -715,7 +718,7 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
     constexpr unsigned cell_count = N * N;
     unsigned p_idx = p.second * N + p.first;
     unsigned q_idx = q.second * N + q.first;
-    const uint32_t *entry = g_line_table_32 + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_TABLE_ROWS;
+    const uint32_t *entry = g_line_table_32 + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_ROWS;
     const unsigned lane = threadIdx.x & 31;
     const uint32_t row = __ldg(entry + lane);
     return BitBoard<32>(row);
@@ -747,13 +750,13 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   if constexpr (W == 32) {
     const unsigned lane = threadIdx.x & 31;
     const unsigned p_idx = p.second * N + p.first;
-    const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
+    const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
     cuda::std::pair<int, int> q;
     while (qs.some_on_if_any(q)) {
       qs.erase(q);
       const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
-      const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
+      const uint32_t row = __ldg(base + q_idx * LINE_ROWS + lane);
       known_off |= BitBoard<32>(row);
       if (__any_sync(0xffffffff, row & known_on.state)) {
         return;
@@ -781,13 +784,13 @@ ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
     if constexpr (W == 32) {
       const unsigned lane = threadIdx.x & 31;
       const unsigned p_idx = static_cast<unsigned>(p.second) * N + static_cast<unsigned>(p.first);
-      const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_TABLE_ROWS;
+      const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
       cuda::std::pair<int, int> q;
       while (qs.some_on_if_any(q)) {
         qs.erase(q);
         const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
-        const uint32_t row = __ldg(base + q_idx * LINE_TABLE_ROWS + lane);
+        const uint32_t row = __ldg(base + q_idx * LINE_ROWS + lane);
         known_off |= BitBoard<32>(row);
         if (__any_sync(0xffffffff, row & known_on.state)) {
           return;
