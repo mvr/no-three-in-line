@@ -53,20 +53,15 @@ def init_db(db_path: Path):
     return conn
 
 
-def run_frontier(frontier_bin: str, out_path: Path, min_on, steps, grid_n):
-    cmd = [frontier_bin, "--steps", str(steps)]
-    if min_on is not None:
-        cmd += ["--min-on", str(min_on)]
+def run_frontier(frontier_bin: str, out_path: Path, min_on, grid_n):
+    cmd = [frontier_bin, "--frontier", str(min_on)]
     print(f"[frontier] running: {' '.join(cmd)} > {out_path}")
     with out_path.open("w", encoding="utf-8") as f:
         if grid_n is not None:
             f.write(f"N={grid_n}\n")
             width = 64 if grid_n > 32 else 32
             f.write(f"W={width}\n")
-        if min_on is not None:
-            f.write(f"MIN_ON={min_on}\n")
-        if steps is not None:
-            f.write(f"MAX_STEPS={steps}\n")
+        f.write(f"MIN_ON={min_on}\n")
         res = subprocess.run(cmd, stdout=f)
     if res.returncode != 0:
         raise RuntimeError(f"frontier failed (exit {res.returncode})")
@@ -104,35 +99,35 @@ def _read_env_int(name: str) -> int | None:
         return None
 
 
-def tune_frontier(frontier_bin: str, out_path: Path, min_on, steps, target, tolerance, max_iters, grid_n):
-    steps = max(1, steps)
+def tune_frontier(frontier_bin: str, out_path: Path, min_on, target, tolerance, max_iters, grid_n):
+    min_on = max(1, min_on)
+    count = 0
     for _ in range(max_iters):
-        run_frontier(frontier_bin, out_path, min_on, steps, grid_n)
+        run_frontier(frontier_bin, out_path, min_on, grid_n)
         shards = parse_shard_file(out_path)
         count = len(shards)
-        print(f"[frontier] steps={steps} shards={count}")
+        print(f"[frontier] min_on={min_on} shards={count}")
         if target is None or count == 0:
-            return steps, count
+            return min_on, count
         ratio = target / count
         if abs(1.0 - ratio) <= tolerance:
-            return steps, count
-        new_steps = max(1, int(steps * ratio))
-        if new_steps == steps:
-            new_steps = steps + 1 if ratio > 1 else max(1, steps - 1)
-        steps = new_steps
-    return steps, count
+            return min_on, count
+        new_min_on = max(1, int(min_on / ratio))
+        if new_min_on == min_on:
+            new_min_on = min_on + 1 if count > target else max(1, min_on - 1)
+        min_on = new_min_on
+    return min_on, count
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate frontier shards and populate a queue.")
-    parser.add_argument("--frontier-bin", default="./three_frontier",
+    parser.add_argument("--frontier-bin", default="./three",
                         help="Path to the frontier executable")
     parser.add_argument("--queue-dir", default="queue", help="Queue directory root")
     parser.add_argument("--shards-file", default=None, help="Use an existing shard list instead of running frontier")
     parser.add_argument("--out", default="shards.txt",
                         help="Output shard list path (captured from frontier stdout)")
-    parser.add_argument("--min-on", type=int, default=None)
-    parser.add_argument("--steps", type=int, default=1000)
+    parser.add_argument("--min-on", type=int, default=1)
     parser.add_argument("--target-shards", type=int, default=None)
     parser.add_argument("--tolerance", type=float, default=0.1)
     parser.add_argument("--max-iters", type=int, default=10)
@@ -152,17 +147,16 @@ def main():
     else:
         shard_path = Path(args.out)
         grid_n = detect_grid_size(args.grid_n, Path("params.hpp"))
-        steps, count = tune_frontier(
+        min_on, count = tune_frontier(
             args.frontier_bin,
             shard_path,
             args.min_on,
-            args.steps,
             args.target_shards,
             args.tolerance,
             args.max_iters,
             grid_n,
         )
-        print(f"[frontier] final steps={steps} shards={count}")
+        print(f"[frontier] final min_on={min_on} shards={count}")
 
     shards = parse_shard_file(shard_path)
     if not shards:

@@ -244,10 +244,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
                             typename Traits::Output *output,
                             unsigned batch_start,
                             unsigned batch_size,
-                            unsigned processed_base,
-                            unsigned max_steps,
-                            unsigned min_on,
-                            bool use_min_on) {
+                            unsigned frontier_min_on) {
   const unsigned problem_offset = (blockIdx.x * WARPS_PER_BLOCK) + (threadIdx.x / 32);
   const unsigned problem_idx = batch_start + problem_offset;
 
@@ -274,17 +271,12 @@ __global__ void work_kernel(typename Traits::Stack *stack,
 
   const unsigned on_pop = board.known_on.pop();
   if constexpr (FrontierMode) {
-    const unsigned global_idx = processed_base + problem_offset;
-    const bool reached_steps = max_steps > 0 && global_idx >= max_steps;
-    const bool above_min = !use_min_on || (on_pop >= min_on);
-    const bool emit = above_min && reached_steps;
-
     if (board.complete()) {
       output_buffer_push<Traits::kW>(output, board.known_on, board.known_off);
       return;
     }
 
-    if (emit) {
+    if (on_pop >= frontier_min_on) {
       output_buffer_push<Traits::kW>(output, board.known_on, board.known_off);
       return;
     }
@@ -332,10 +324,7 @@ __global__ void work_kernel(typename Traits::Stack *stack,
 template <typename Traits, bool FrontierMode>
 int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
                                  const board_array_t<Traits::kW> *seed_off,
-                                 const FrontierConfig *config) {
-  const FrontierConfig default_config{};
-  const FrontierConfig *cfg = config ? config : &default_config;
-
+                                 unsigned frontier_min_on) {
   Traits::init_host();
 
   using Stack = typename Traits::Stack;
@@ -346,9 +335,7 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
   Output *d_output = nullptr;
   Problem *d_output_entries = nullptr;
 
-  unsigned output_capacity = FrontierMode
-    ? (cfg->buffer_capacity ? cfg->buffer_capacity : (BATCH_MAX_SIZE * 4))
-    : SOLUTION_BUFFER_CAPACITY;
+  unsigned output_capacity = FrontierMode ? (BATCH_MAX_SIZE * 4) : SOLUTION_BUFFER_CAPACITY;
 
   cudaMalloc((void**) &d_stack, sizeof(Stack));
   cudaMalloc((void**) &d_output, sizeof(Output));
@@ -362,15 +349,11 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
   host_output.capacity = output_capacity;
   cudaMemcpy(d_output, &host_output, sizeof(Output), cudaMemcpyHostToDevice);
 
-  if constexpr (!FrontierMode) {
-    if (seed_on && seed_off) {
-      Problem seed{};
-      seed.known_on = *seed_on;
-      seed.known_off = *seed_off;
-      initialize_stack_seed_kernel<Traits><<<1, 32>>>(d_stack, seed);
-    } else {
-      initialize_stack_kernel<Traits><<<1, 32>>>(d_stack);
-    }
+  if (seed_on && seed_off) {
+    Problem seed{};
+    seed.known_on = *seed_on;
+    seed.known_off = *seed_off;
+    initialize_stack_seed_kernel<Traits><<<1, 32>>>(d_stack, seed);
   } else {
     initialize_stack_kernel<Traits><<<1, 32>>>(d_stack);
   }
@@ -383,8 +366,6 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
   unsigned start_size;
   cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
   float feedback_scale = 1 / static_cast<float>(BATCH_MAX_SIZE / BATCH_WARMUP_SIZE);
-
-  unsigned processed_total = 0;
 
   while (start_size > 0) {
     unsigned batch_size = static_cast<unsigned>(feedback_scale * static_cast<float>(BATCH_MAX_SIZE));
@@ -404,10 +385,7 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
           d_output,
           batch_start,
           batch_size,
-          processed_total,
-          cfg->max_steps,
-          cfg->min_on,
-          cfg->use_min_on);
+          frontier_min_on);
 
       cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
       if (overflow_count == 0) {
@@ -472,7 +450,6 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
     cudaMemcpy(&output_overflow, &d_output->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
 
     if constexpr (FrontierMode) {
-      processed_total += batch_size;
       if (output_overflow > 0) {
         std::cerr << "[error] frontier buffer overflow (" << output_overflow
                   << " drops) capacity=" << output_capacity << std::endl;

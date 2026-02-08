@@ -358,10 +358,48 @@ struct D2Traits {
 template <unsigned N>
 int solve_with_device_stack_d2() {
   if constexpr (N <= 16) {
-    return solve_with_device_stack_impl<D2Traits<N, 32>, false>(nullptr, nullptr, nullptr);
+    return solve_with_device_stack_impl<D2Traits<N, 32>, false>(nullptr, nullptr, 0);
   } else {
-    return solve_with_device_stack_impl<D2Traits<N, 64>, false>(nullptr, nullptr, nullptr);
+    return solve_with_device_stack_impl<D2Traits<N, 64>, false>(nullptr, nullptr, 0);
+  }
+}
+
+template <unsigned N>
+int solve_with_device_stack_d2(unsigned frontier_min_on) {
+  if constexpr (N <= 16) {
+    return solve_with_device_stack_impl<D2Traits<N, 32>, true>(nullptr, nullptr, frontier_min_on);
+  } else {
+    return solve_with_device_stack_impl<D2Traits<N, 64>, true>(nullptr, nullptr, frontier_min_on);
+  }
+}
+
+template <unsigned N>
+int solve_with_device_stack_d2(const board_array_t<32> *seed_on,
+                               const board_array_t<32> *seed_off) {
+  if constexpr (N <= 16) {
+    return solve_with_device_stack_impl<D2Traits<N, 32>, false>(seed_on, seed_off, 0);
+  } else {
+    (void)seed_on;
+    (void)seed_off;
+    std::cerr << "[d2] 32-bit seeds are invalid for N > 16\n";
+    return 1;
+  }
+}
+
+template <unsigned N>
+int solve_with_device_stack_d2(const board_array_t<64> *seed_on,
+                               const board_array_t<64> *seed_off) {
+  if constexpr (N > 16) {
+    return solve_with_device_stack_impl<D2Traits<N, 64>, false>(seed_on, seed_off, 0);
+  } else {
+    (void)seed_on;
+    (void)seed_off;
+    std::cerr << "[d2] 64-bit seeds are invalid for N <= 16\n";
+    return 1;
   }
 }
 
 template int solve_with_device_stack_d2<N>();
+template int solve_with_device_stack_d2<N>(unsigned);
+template int solve_with_device_stack_d2<N>(const board_array_t<32> *, const board_array_t<32> *);
+template int solve_with_device_stack_d2<N>(const board_array_t<64> *, const board_array_t<64> *);

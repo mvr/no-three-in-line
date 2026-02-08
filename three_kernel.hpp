@@ -49,15 +49,8 @@ template <unsigned N, unsigned W>
 int solve_with_device_stack(const board_array_t<W> *seed_on,
                             const board_array_t<W> *seed_off);
 
-struct FrontierConfig {
-  unsigned min_on = 0;
-  unsigned max_steps = 0;
-  unsigned buffer_capacity = 0;
-  bool use_min_on = false;
-};
-
 template <unsigned N, unsigned W>
-int solve_with_device_stack(const FrontierConfig &config);
+int solve_with_device_stack(unsigned frontier_min_on);
 
 void init_lookup_tables_host();
 void init_relevant_endpoint_host(unsigned n);

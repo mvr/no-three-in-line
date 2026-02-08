@@ -460,7 +460,18 @@ struct C4Traits {
 
 template <unsigned N, unsigned W>
 int solve_with_device_stack_c4_w() {
-  return solve_with_device_stack_impl<C4Traits<N, W>, false>(nullptr, nullptr, nullptr);
+  return solve_with_device_stack_impl<C4Traits<N, W>, false>(nullptr, nullptr, 0);
+}
+
+template <unsigned N, unsigned W>
+int solve_with_device_stack_c4_w(const board_array_t<W> *seed_on,
+                                 const board_array_t<W> *seed_off) {
+  return solve_with_device_stack_impl<C4Traits<N, W>, false>(seed_on, seed_off, 0);
+}
+
+template <unsigned N, unsigned W>
+int solve_with_device_stack_c4_w(unsigned frontier_min_on) {
+  return solve_with_device_stack_impl<C4Traits<N, W>, true>(nullptr, nullptr, frontier_min_on);
 }
 
 template <unsigned N>
@@ -472,4 +483,42 @@ int solve_with_device_stack_c4() {
   }
 }
 
+template <unsigned N>
+int solve_with_device_stack_c4(unsigned frontier_min_on) {
+  if constexpr (N <= 32) {
+    return solve_with_device_stack_c4_w<N, 32>(frontier_min_on);
+  } else {
+    return solve_with_device_stack_c4_w<N, 64>(frontier_min_on);
+  }
+}
+
+template <unsigned N>
+int solve_with_device_stack_c4(const board_array_t<32> *seed_on,
+                               const board_array_t<32> *seed_off) {
+  if constexpr (N <= 32) {
+    return solve_with_device_stack_c4_w<N, 32>(seed_on, seed_off);
+  } else {
+    (void)seed_on;
+    (void)seed_off;
+    std::cerr << "[c4] 32-bit seeds are invalid for N > 32\n";
+    return 1;
+  }
+}
+
+template <unsigned N>
+int solve_with_device_stack_c4(const board_array_t<64> *seed_on,
+                               const board_array_t<64> *seed_off) {
+  if constexpr (N > 32) {
+    return solve_with_device_stack_c4_w<N, 64>(seed_on, seed_off);
+  } else {
+    (void)seed_on;
+    (void)seed_off;
+    std::cerr << "[c4] 64-bit seeds are invalid for N <= 32\n";
+    return 1;
+  }
+}
+
 template int solve_with_device_stack_c4<N>();
+template int solve_with_device_stack_c4<N>(unsigned);
+template int solve_with_device_stack_c4<N>(const board_array_t<32> *, const board_array_t<32> *);
+template int solve_with_device_stack_c4<N>(const board_array_t<64> *, const board_array_t<64> *);

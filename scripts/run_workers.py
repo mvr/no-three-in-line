@@ -81,7 +81,8 @@ def finish_shard(conn: sqlite3.Connection, shard_id: int, rc: int, duration: flo
 
 
 def run_shard_stream(three_bin: str, on_rle: str, off_rle: str, gpu: int):
-    cmd = [three_bin, "--seed-on", on_rle, "--seed-off", off_rle]
+    seed = f"{on_rle}|{off_rle}" if off_rle else on_rle
+    cmd = [three_bin, "--seed", seed]
     if gpu is not None:
         cmd += ["--gpu", str(gpu)]
     print(f"[GPU {str(gpu)}] ON {on_rle}, OFF {off_rle}", flush=True)
