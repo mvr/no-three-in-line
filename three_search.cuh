@@ -388,7 +388,7 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
 
   while (start_size > 0) {
     unsigned batch_size = static_cast<unsigned>(feedback_scale * static_cast<float>(BATCH_MAX_SIZE));
-    batch_size = std::clamp(batch_size, BATCH_MIN_SIZE, std::min(start_size, BATCH_MAX_SIZE));
+    batch_size = std::clamp(batch_size, 0, std::min(start_size, BATCH_MAX_SIZE));
     unsigned batch_start = start_size - batch_size;
 
     unsigned overflow_count = 0;
