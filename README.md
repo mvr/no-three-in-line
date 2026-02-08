@@ -37,6 +37,7 @@ previously known:
   * $44 \times 44$: 1016
   * $46 \times 46$: 1366
   * $48 \times 48$: 2124
+  * $50 \times 50$: 3381
 
 ## Compiling
 
