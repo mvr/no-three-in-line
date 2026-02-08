@@ -111,6 +111,26 @@ _HD_ int count_trailing_zeros(board_row_t<W> x) {
   }
 }
 
+_HD_ uint64_t interleave32(uint32_t even_bits, uint32_t odd_bits) {
+  static const uint64_t B[] = {
+      0x0000FFFF0000FFFFULL,
+      0x00FF00FF00FF00FFULL,
+      0x0F0F0F0F0F0F0F0FULL,
+      0x3333333333333333ULL,
+      0x5555555555555555ULL};
+  static const unsigned S[] = {16, 8, 4, 2, 1};
+
+  uint64_t even = even_bits;
+  uint64_t odd = odd_bits;
+  #pragma unroll
+  for (unsigned i = 0; i < sizeof(B) / sizeof(B[0]); ++i) {
+    even = (even | (even << S[i])) & B[i];
+    odd  = (odd  | (odd  << S[i])) & B[i];
+  }
+
+  return even | (odd << 1);
+}
+
 template <unsigned N, unsigned W>
 _HD_ unsigned pick_center_col(board_row_t<W> bits) {
   constexpr int center_right = static_cast<int>(N / 2);

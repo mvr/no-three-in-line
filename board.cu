@@ -245,18 +245,7 @@ _DI_ board_row_t<W> BitBoard<W>::column(int x) const {
       zs = __ballot_sync(0xffffffff, state.w & (1<<(x-32)));
     }
 
-    static const uint64_t B[] = {0x0000FFFF0000FFFF, 0x00FF00FF00FF00FF, 0x0F0F0F0F0F0F0F0F, 0x3333333333333333, 0x5555555555555555};
-    static const unsigned S[] = {16, 8, 4, 2, 1};
-
-    uint64_t xsl = xs;
-    uint64_t zsl = zs;
-
-    for(unsigned i = 0; i < sizeof(B)/sizeof(B[0]); i++) {
-      xsl = (xsl | (xsl << S[i])) & B[i];
-      zsl = (zsl | (zsl << S[i])) & B[i];
-    }
-
-    return xsl | (zsl << 1);
+    return interleave32(xs, zs);
   }
 }
 
