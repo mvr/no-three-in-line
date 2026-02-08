@@ -73,37 +73,7 @@ struct ThreeBoardD2 {
 
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoardD2<N, W>::bounds() {
-  BitBoard<W> result;
-  const unsigned lane = threadIdx.x & 31;
-
-  if constexpr (W == 32) {
-    if (lane < N) {
-      const board_row_t<32> row_mask = (FULL_N == 32) ? 0xffffffffu : ((board_row_t<32>(1) << FULL_N) - 1u);
-      result.state = row_mask;
-    } else {
-      result.state = 0;
-    }
-  } else {
-    const board_row_t<32> row_mask_x = (FULL_N >= 32) ? 0xffffffffu : ((board_row_t<32>(1) << FULL_N) - 1u);
-    board_row_t<32> row_mask_y;
-    if constexpr (FULL_N <= 32) {
-      row_mask_y = 0;
-    } else if constexpr (FULL_N >= 64) {
-      row_mask_y = 0xffffffffu;
-    } else {
-      row_mask_y = (board_row_t<32>(1) << (FULL_N - 32)) - 1u;
-    }
-
-    const bool has_even = lane < ((N + 1) >> 1);
-    const bool has_odd = lane < (N >> 1);
-
-    result.state.x = has_even ? row_mask_x : 0;
-    result.state.y = has_even ? row_mask_y : 0;
-    result.state.z = has_odd ? row_mask_x : 0;
-    result.state.w = has_odd ? row_mask_y : 0;
-  }
-
-  return result;
+  return BitBoard<W>::rect(FULL_N, N);
 }
 
 template <unsigned N, unsigned W>

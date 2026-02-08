@@ -29,6 +29,9 @@ struct BitBoard {
     }
   }
 
+  // Rectangle anchored at origin with width w and height h.
+  [[nodiscard]] _DI_ static BitBoard rect(unsigned w, unsigned h);
+
   [[nodiscard]] _DI_ static BitBoard load(const board_row_t<W> *data);
   _DI_ void save(board_row_t<W> *data) const;
 
@@ -166,6 +169,47 @@ _DI_ void BitBoard<W>::save(board_row_t<W> *out) const {
     uint4 *u4ptr = (uint4 *)out;
     u4ptr[threadIdx.x & 31] = state;
   }
+}
+
+template<unsigned W>
+_DI_ BitBoard<W> BitBoard<W>::rect(unsigned w, unsigned h) {
+  BitBoard<W> result;
+  const unsigned lane = threadIdx.x & 31;
+  const unsigned width = (w > W) ? W : w;
+
+  if constexpr (W == 32) {
+    board_row_t<32> row_mask;
+    if (width >= 32) {
+      row_mask = ~0u;
+    } else if (width == 0) {
+      row_mask = 0u;
+    } else {
+      row_mask = (board_row_t<32>(1) << width) - 1u;
+    }
+    result.state = (lane < h) ? row_mask : 0u;
+  } else {
+    board_row_t<64> row_mask;
+    if (width >= 64) {
+      row_mask = ~board_row_t<64>(0);
+    } else if (width == 0) {
+      row_mask = 0;
+    } else {
+      row_mask = (board_row_t<64>(1) << width) - 1;
+    }
+
+    const uint32_t lo = static_cast<uint32_t>(row_mask);
+    const uint32_t hi = static_cast<uint32_t>(row_mask >> 32);
+    const unsigned even_row = 2 * lane;
+    const unsigned odd_row = even_row + 1;
+    const bool has_even = even_row < h;
+    const bool has_odd = odd_row < h;
+
+    result.state.x = has_even ? lo : 0u;
+    result.state.y = has_even ? hi : 0u;
+    result.state.z = has_odd ? lo : 0u;
+    result.state.w = has_odd ? hi : 0u;
+  }
+  return result;
 }
 
 template<unsigned W>
