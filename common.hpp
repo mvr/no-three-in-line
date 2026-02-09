@@ -66,13 +66,13 @@ _HD_ int find_first_set(board_row_t<W> x) {
     #ifdef __CUDA_ARCH__
     return __ffs(x) - 1;
     #else
-    return __builtin_ffs(x);
+    return __builtin_ffs(x) - 1;
     #endif
   } else {
     #ifdef __CUDA_ARCH__
     return __ffsll(x) - 1;
     #else
-    return __builtin_ffsll(x);
+    return __builtin_ffsll(x) - 1;
     #endif
   }
 }
