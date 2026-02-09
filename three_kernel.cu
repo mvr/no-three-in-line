@@ -63,6 +63,8 @@ struct AsymTraits {
   static constexpr unsigned kN = N;
   static constexpr unsigned kW = W;
   static constexpr unsigned kSymForceMaxOn = N - 2;
+  static constexpr unsigned kCellBranchRowSpan = N;
+  static constexpr unsigned kCellBranchColSpan = N;
   static constexpr bool kEnableSemiQuasi = true;
 
   static constexpr unsigned kCellBranchRowScoreThreshold = 20;

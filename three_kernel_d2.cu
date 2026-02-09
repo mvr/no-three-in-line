@@ -102,16 +102,27 @@ struct D2Traits {
   static constexpr unsigned kN = ThreeBoardD2<N, W>::FULL_N;
   static constexpr unsigned kW = W;
   static constexpr unsigned kSymForceMaxOn = N / 2;
-  static constexpr unsigned kRowOnZeroUnknownNum = 8;
+  static constexpr unsigned kCellBranchRowSpan = ThreeBoardD2<N, W>::FULL_N;
+  static constexpr unsigned kCellBranchColSpan = N;
+  static constexpr unsigned kRowOnZeroUnknownNum = 7;
   static constexpr unsigned kRowOnZeroUnknownDen = 4;
+  static constexpr unsigned kCellBranchRowUnknownThreshold = 4;
+  static constexpr int kCellBranchWColUnknown = 8;
+  static constexpr int kCellBranchWRowUnknown = 0;
+  static constexpr int kCellBranchWColOn = 4;
+  static constexpr int kCellBranchWColOff = 8;
+  static constexpr int kCellBranchWEndpointOn = 0;
   static constexpr bool kEnableSemiQuasi = false;
-  static constexpr unsigned kSeedRow = N - 2;
 
   using Board = ThreeBoardD2<N, W>;
   using Problem = Problem<W>;
   using Stack = DeviceStack<W>;
   using Output = OutputBuffer<W>;
   using Cell = cuda::std::pair<unsigned, unsigned>;
+  struct BranchRowChoice {
+    unsigned row;
+    unsigned unknown;
+  };
 
   static void init_line_table_host() {
     static bool initialized = false;
@@ -229,7 +240,7 @@ struct D2Traits {
     return {best_x, best_y};
   }
 
-  _DI_ static unsigned pick_branch_row(const Board &board) {
+  _DI_ static BranchRowChoice pick_branch_row(const Board &board) {
     const unsigned lane = threadIdx.x & 31;
 
     unsigned best_row0 = 0;
@@ -300,25 +311,36 @@ struct D2Traits {
 
     if (best_unknown0 != 0xffffffffu) {
       if (best_unknown1 == 0xffffffffu) {
-        return best_row0;
+        return {best_row0, best_unknown0};
       }
       if ((best_unknown0 * kRowOnZeroUnknownDen) <= (best_unknown1 * kRowOnZeroUnknownNum)) {
-        return best_row0;
+        return {best_row0, best_unknown0};
       }
-      return best_row1;
+      return {best_row1, best_unknown1};
     }
-    return (best_unknown1 != 0xffffffffu) ? best_row1 : 0;
+    if (best_unknown1 != 0xffffffffu) {
+      return {best_row1, best_unknown1};
+    }
+    return {0u, 0u};
   }
 
   _DI_ static void seed_initial(Stack *stack) {
     Board board;
-    resolve_outcome_row<N, W>(board, kSeedRow, stack);
+    stack_push<W>(stack, board.known_on, board.known_off);
   }
 
   _DI_ static void branch_fallback(const Board &board, Stack *stack) {
-    const unsigned row = pick_branch_row(board);
-    stats_record(StatId::RowBranches);
-    resolve_outcome_row<N, W>(board, row, stack);
+    const BranchRowChoice choice = pick_branch_row(board);
+    const unsigned row = choice.row;
+    const unsigned row_unknown = choice.unknown;
+    if (row_unknown >= kCellBranchRowUnknownThreshold) {
+      auto cell = pick_best_branch_cell<D2Traits>(board);
+      stats_record(StatId::CellBranches);
+      resolve_outcome_cell<D2Traits>(board, cell, stack);
+    } else {
+      stats_record(StatId::RowBranches);
+      resolve_outcome_row<N, W>(board, row, stack);
+    }
   }
 
   static void expand_half_to_full(const board_array_t<W> &half, board_array_t<Board::FULL_W> &expanded) {

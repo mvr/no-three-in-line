@@ -122,7 +122,8 @@ template <typename Traits>
 __device__ int cell_branch_score(const typename Traits::Board &board,
                                  unsigned x,
                                  unsigned y) {
-  constexpr unsigned N = Traits::kN;
+  constexpr unsigned row_span = Traits::kCellBranchRowSpan;
+  constexpr unsigned col_span = Traits::kCellBranchColSpan;
   constexpr unsigned W = Traits::kW;
   using Board = typename Traits::Board;
 
@@ -130,13 +131,13 @@ __device__ int cell_branch_score(const typename Traits::Board &board,
   board_row_t<W> row_off_bits = board.known_off.row(y);
   unsigned row_on = popcount<W>(row_on_bits);
   unsigned row_off = popcount<W>(row_off_bits);
-  unsigned row_unknown = N - row_on - row_off;
+  unsigned row_unknown = row_span - row_on - row_off;
 
   board_row_t<W> col_on_mask = board.known_on.column(x);
   board_row_t<W> col_off_mask = board.known_off.column(x);
   unsigned col_on = popcount<W>(col_on_mask);
   unsigned col_off = popcount<W>(col_off_mask);
-  unsigned col_unknown = N - col_on - col_off;
+  unsigned col_unknown = col_span - col_on - col_off;
 
   auto cell = cuda::std::pair<unsigned, unsigned>{x, y};
   BitBoard<W> endpoint = Board::relevant_endpoint(cell);
