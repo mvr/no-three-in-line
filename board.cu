@@ -96,6 +96,7 @@ struct BitBoard {
 
   _DI_ board_row_t<W> row(int y) const;
   _DI_ board_row_t<W> column(int x) const;
+  _DI_ unsigned column_pop(int x) const;
   _DI_ bool get(int x, int y) const;
   _DI_ bool get(cuda::std::pair<int, int> cell) const { return get(cell.first, cell.second); }
   _DI_ void set(int x, int y);
@@ -246,6 +247,27 @@ _DI_ board_row_t<W> BitBoard<W>::column(int x) const {
     }
 
     return interleave32(xs, zs);
+  }
+}
+
+template<unsigned W>
+_DI_ unsigned BitBoard<W>::column_pop(int x) const {
+  if constexpr (W == 32) {
+    const uint32_t col_bits = __ballot_sync(0xffffffff, (state & (1u << x)) != 0u);
+    return popcount<32>(col_bits);
+  } else {
+    uint32_t even_rows;
+    uint32_t odd_rows;
+    if (x < 32) {
+      const uint32_t bit = (1u << x);
+      even_rows = __ballot_sync(0xffffffff, (state.x & bit) != 0u);
+      odd_rows = __ballot_sync(0xffffffff, (state.z & bit) != 0u);
+    } else {
+      const uint32_t bit = (1u << (x - 32));
+      even_rows = __ballot_sync(0xffffffff, (state.y & bit) != 0u);
+      odd_rows = __ballot_sync(0xffffffff, (state.w & bit) != 0u);
+    }
+    return popcount<32>(even_rows) + popcount<32>(odd_rows);
   }
 }
 
