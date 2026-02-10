@@ -81,86 +81,8 @@ struct AsymTraits {
   using Output = OutputBuffer<W>;
   using Cell = cuda::std::pair<unsigned, unsigned>;
 
-  static void init_line_table_host_32() {
-    if constexpr (N > 32) {
-      return;
-    }
-
-    static bool initialized = false;
-    static uint32_t *d_line_table = nullptr;
-    if (initialized) {
-      return;
-    }
-    initialized = true;
-
-    const unsigned cell_count = N * N;
-    const unsigned rows = Board::LINE_ROWS;
-    const size_t entry_size = rows;
-    const size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
-    const size_t total_rows = total_entries * entry_size;
-
-    std::vector<uint32_t> host_table(total_rows, 0);
-
-    for (unsigned py = 0; py < N; ++py) {
-      for (unsigned px = 0; px < N; ++px) {
-        const unsigned p_idx = py * N + px;
-        for (unsigned qy = 0; qy < N; ++qy) {
-          for (unsigned qx = 0; qx < N; ++qx) {
-            const unsigned q_idx = qy * N + qx;
-            if (p_idx == q_idx) {
-              continue;
-            }
-
-            unsigned pyy = py;
-            unsigned pxx = px;
-            unsigned qyy = qy;
-            unsigned qxx = qx;
-            if (pyy > qyy) {
-              std::swap(pyy, qyy);
-              std::swap(pxx, qxx);
-            }
-
-            int dx = static_cast<int>(qxx) - static_cast<int>(pxx);
-            unsigned dy = qyy - pyy;
-            if (dy == 0) {
-              continue;
-            }
-
-            const unsigned adx = static_cast<unsigned>(std::abs(dx));
-            const unsigned g = std::gcd(adx, dy);
-            const unsigned delta_y = dy / g;
-            const int delta_x = (dx < 0 ? -1 : 1) * static_cast<int>(adx / g);
-
-            const unsigned p_quo = pyy / delta_y;
-            const unsigned p_rem = pyy % delta_y;
-
-            uint32_t *mask = &host_table[(static_cast<size_t>(p_idx) * cell_count + q_idx) * entry_size];
-            for (unsigned r = 0; r < N; ++r) {
-              if (r % delta_y == p_rem) {
-                int col = static_cast<int>(pxx) + (static_cast<int>(r / delta_y) - static_cast<int>(p_quo)) * delta_x;
-                if (col >= 0 && col < static_cast<int>(N)) {
-                  mask[r] |= (uint32_t(1) << col);
-                }
-              }
-            }
-
-            mask[py] &= ~(uint32_t(1) << px);
-            mask[qy] &= ~(uint32_t(1) << qx);
-          }
-        }
-      }
-    }
-
-    cudaMalloc((void **)&d_line_table, total_rows * sizeof(uint32_t));
-    cudaMemcpy(d_line_table, host_table.data(), total_rows * sizeof(uint32_t), cudaMemcpyHostToDevice);
-    cudaMemcpyToSymbol(g_line_table_32, &d_line_table, sizeof(d_line_table));
-  }
-
   static void init_host() {
-    init_lookup_tables_host();
-    init_relevant_endpoint_host(N);
-    init_relevant_endpoint_host_64(N);
-    init_line_table_host_32();
+    Board::init_tables_host();
   }
 
   _DI_ static Cell pick_preferred_branch_cell(const BitBoard<W> &mask) {

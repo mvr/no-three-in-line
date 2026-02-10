@@ -9,68 +9,6 @@
 #include "params.hpp"
 #include "three_search.cuh"
 
-template <unsigned N>
-__global__ void init_c4_line_table_kernel_32(uint32_t *table) {
-  constexpr unsigned cell_count = N * N;
-  constexpr unsigned line_rows = ThreeBoardC4<N, 32>::LINE_ROWS;
-  const unsigned pair_idx = blockIdx.x;
-  if (pair_idx >= cell_count * cell_count) {
-    return;
-  }
-  const unsigned lane = threadIdx.x & 31;
-
-  const unsigned p_idx = pair_idx / cell_count;
-  const unsigned q_idx = pair_idx - p_idx * cell_count;
-  const unsigned px = p_idx % N;
-  const unsigned py = p_idx / N;
-  const unsigned qx = q_idx % N;
-  const unsigned qy = q_idx / N;
-
-  ThreeBoardC4<N, 32> board;
-  board.known_on.set(px, py);
-  board.known_on.set(qx, qy);
-  board.eliminate_all_lines_slow({px, py});
-  board.eliminate_all_lines_slow({qx, qy});
-  board.propagate_slow();
-
-  if (lane < line_rows) {
-    table[static_cast<size_t>(pair_idx) * line_rows + lane] = board.known_off.state;
-  }
-}
-
-template <unsigned N>
-__global__ void init_c4_line_table_kernel_64(uint64_t *table_even, uint64_t *table_odd) {
-  constexpr unsigned cell_count = N * N;
-  constexpr unsigned line_rows = ThreeBoardC4<N, 64>::LINE_ROWS;
-  const unsigned pair_idx = blockIdx.x;
-  if (pair_idx >= cell_count * cell_count) {
-    return;
-  }
-  const unsigned lane = threadIdx.x & 31;
-
-  const unsigned p_idx = pair_idx / cell_count;
-  const unsigned q_idx = pair_idx - p_idx * cell_count;
-  const unsigned px = p_idx % N;
-  const unsigned py = p_idx / N;
-  const unsigned qx = q_idx % N;
-  const unsigned qy = q_idx / N;
-
-  ThreeBoardC4<N, 64> board;
-  board.known_on.set(px, py);
-  board.known_on.set(qx, qy);
-  board.eliminate_all_lines_slow({px, py});
-  board.eliminate_all_lines_slow({qx, qy});
-  board.propagate_slow();
-
-  if (lane < line_rows) {
-    const size_t idx = static_cast<size_t>(pair_idx) * line_rows + lane;
-    table_even[idx] = (static_cast<uint64_t>(board.known_off.state.y) << 32) |
-                      static_cast<uint64_t>(board.known_off.state.x);
-    table_odd[idx] = (static_cast<uint64_t>(board.known_off.state.w) << 32) |
-                     static_cast<uint64_t>(board.known_off.state.z);
-  }
-}
-
 template <unsigned N, unsigned W>
 __device__ void resolve_outcome_row(const ThreeBoardC4<N, W> &board,
                                     unsigned ix,
@@ -165,60 +103,7 @@ struct C4Traits {
   using Output = OutputBuffer<W>;
   using Cell = cuda::std::pair<unsigned, unsigned>;
 
-  static void init_line_table_host() {
-    static bool initialized = false;
-    static uint32_t *d_table_32 = nullptr;
-    static uint64_t *d_table_even = nullptr;
-    static uint64_t *d_table_odd = nullptr;
-    if (initialized) {
-      return;
-    }
-    initialized = true;
-
-    constexpr unsigned cell_count = N * N;
-    constexpr size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
-    constexpr size_t total_rows = total_entries * Board::LINE_ROWS;
-
-    auto check_or_die = [](cudaError_t err, const char *label) {
-      if (err != cudaSuccess) {
-        std::cerr << "[c4] " << label << " failed: " << cudaGetErrorString(err) << "\n";
-        std::exit(1);
-      }
-    };
-
-    if constexpr (W == 32) {
-      check_or_die(cudaMalloc((void **)&d_table_32, total_rows * sizeof(uint32_t)),
-                   "cudaMalloc(table32)");
-      init_c4_line_table_kernel_32<N><<<static_cast<unsigned>(total_entries), 32>>>(d_table_32);
-      check_or_die(cudaGetLastError(), "init_c4_line_table_kernel_32 launch");
-      check_or_die(cudaDeviceSynchronize(), "init_c4_line_table_kernel_32 sync");
-      check_or_die(cudaMemcpyToSymbol(g_c4_line_table_32, &d_table_32, sizeof(d_table_32)),
-                   "cudaMemcpyToSymbol(table32)");
-    } else {
-      check_or_die(cudaMalloc((void **)&d_table_even, total_rows * sizeof(uint64_t)),
-                   "cudaMalloc(table64_even)");
-      check_or_die(cudaMalloc((void **)&d_table_odd, total_rows * sizeof(uint64_t)),
-                   "cudaMalloc(table64_odd)");
-      init_c4_line_table_kernel_64<N><<<static_cast<unsigned>(total_entries), 32>>>(d_table_even,
-                                                                                      d_table_odd);
-      check_or_die(cudaGetLastError(), "init_c4_line_table_kernel_64 launch");
-      check_or_die(cudaDeviceSynchronize(), "init_c4_line_table_kernel_64 sync");
-      check_or_die(cudaMemcpyToSymbol(g_c4_line_table_64_even, &d_table_even, sizeof(d_table_even)),
-                   "cudaMemcpyToSymbol(table64_even)");
-      check_or_die(cudaMemcpyToSymbol(g_c4_line_table_64_odd, &d_table_odd, sizeof(d_table_odd)),
-                   "cudaMemcpyToSymbol(table64_odd)");
-    }
-  }
-
-  static void init_host() {
-    init_lookup_tables_host();
-    if constexpr (W == 32) {
-      init_relevant_endpoint_host(N);
-    } else {
-      init_relevant_endpoint_host_64(N);
-    }
-    init_line_table_host();
-  }
+  static void init_host() { Board::init_tables_host(); }
 
   _DI_ static Cell pick_preferred_branch_cell(const BitBoard<W> &mask) {
     auto cell = mask.template first_origin_on<N>();

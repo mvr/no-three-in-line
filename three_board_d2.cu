@@ -34,6 +34,8 @@ struct ThreeBoardD2 {
 
   static _DI_ BitBoard<W> bounds();
   static _DI_ BitBoard<W> relevant_endpoint(cuda::std::pair<unsigned, unsigned> p);
+  static void init_line_table_host();
+  static void init_tables_host();
 
   _DI_ bool consistent() const;
   _DI_ unsigned unknown_pop() const;
@@ -69,6 +71,112 @@ struct ThreeBoardD2 {
 
   _DI_ void propagate();
 };
+
+template <unsigned N>
+__global__ void init_d2_line_table_kernel_32(uint32_t *table) {
+  constexpr unsigned cell_count = N * (2 * N);
+  constexpr unsigned line_rows = ThreeBoardD2<N, 32>::LINE_ROWS;
+  const unsigned pair_idx = blockIdx.x;
+  if (pair_idx >= cell_count * cell_count) {
+    return;
+  }
+  const unsigned lane = threadIdx.x & 31;
+
+  const unsigned p_idx = pair_idx / cell_count;
+  const unsigned q_idx = pair_idx - p_idx * cell_count;
+  const unsigned px = p_idx % (2 * N);
+  const unsigned py = p_idx / (2 * N);
+  const unsigned qx = q_idx % (2 * N);
+  const unsigned qy = q_idx / (2 * N);
+
+  ThreeBoardD2<N, 32> board;
+  BitBoard<32> mask = board.eliminate_line_slow({px, py}, {qx, qy});
+
+  if (lane < line_rows) {
+    table[static_cast<size_t>(pair_idx) * line_rows + lane] = mask.state;
+  }
+}
+
+template <unsigned N>
+__global__ void init_d2_line_table_kernel_64(uint64_t *table_even, uint64_t *table_odd) {
+  constexpr unsigned cell_count = N * (2 * N);
+  constexpr unsigned line_rows = ThreeBoardD2<N, 64>::LINE_ROWS;
+  const unsigned pair_idx = blockIdx.x;
+  if (pair_idx >= cell_count * cell_count) {
+    return;
+  }
+  const unsigned lane = threadIdx.x & 31;
+
+  const unsigned p_idx = pair_idx / cell_count;
+  const unsigned q_idx = pair_idx - p_idx * cell_count;
+  const unsigned px = p_idx % (2 * N);
+  const unsigned py = p_idx / (2 * N);
+  const unsigned qx = q_idx % (2 * N);
+  const unsigned qy = q_idx / (2 * N);
+
+  ThreeBoardD2<N, 64> board;
+  BitBoard<64> mask = board.eliminate_line_slow({px, py}, {qx, qy});
+
+  if (lane < line_rows) {
+    const size_t idx = static_cast<size_t>(pair_idx) * line_rows + lane;
+    table_even[idx] = (static_cast<uint64_t>(mask.state.y) << 32) | static_cast<uint64_t>(mask.state.x);
+    table_odd[idx] = (static_cast<uint64_t>(mask.state.w) << 32) | static_cast<uint64_t>(mask.state.z);
+  }
+}
+
+template <unsigned N, unsigned W>
+inline void ThreeBoardD2<N, W>::init_line_table_host() {
+  static uint32_t *d_table_32 = nullptr;
+  static uint64_t *d_table_even = nullptr;
+  static uint64_t *d_table_odd = nullptr;
+
+  constexpr unsigned cell_count = N * (2 * N);
+  constexpr size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
+  constexpr size_t total_rows = total_entries * LINE_ROWS;
+
+  if constexpr (W == 32) {
+    if (d_table_32 != nullptr) {
+      cudaFree(d_table_32);
+      d_table_32 = nullptr;
+    }
+    cudaMalloc((void **)&d_table_32, total_rows * sizeof(uint32_t));
+    init_d2_line_table_kernel_32<N><<<static_cast<unsigned>(total_entries), 32>>>(d_table_32);
+    cudaGetLastError();
+    cudaDeviceSynchronize();
+  } else {
+    if (d_table_even != nullptr) {
+      cudaFree(d_table_even);
+      d_table_even = nullptr;
+    }
+    if (d_table_odd != nullptr) {
+      cudaFree(d_table_odd);
+      d_table_odd = nullptr;
+    }
+    cudaMalloc((void **)&d_table_even, total_rows * sizeof(uint64_t));
+    cudaMalloc((void **)&d_table_odd, total_rows * sizeof(uint64_t));
+    init_d2_line_table_kernel_64<N><<<static_cast<unsigned>(total_entries), 32>>>(d_table_even, d_table_odd);
+    cudaGetLastError();
+    cudaDeviceSynchronize();
+  }
+
+  if constexpr (W == 32) {
+    cudaMemcpyToSymbol(g_d2_line_table_32, &d_table_32, sizeof(d_table_32));
+  } else {
+    cudaMemcpyToSymbol(g_d2_line_table_64_even, &d_table_even, sizeof(d_table_even));
+    cudaMemcpyToSymbol(g_d2_line_table_64_odd, &d_table_odd, sizeof(d_table_odd));
+  }
+}
+
+template <unsigned N, unsigned W>
+inline void ThreeBoardD2<N, W>::init_tables_host() {
+  init_lookup_tables_host();
+  if constexpr (W == 32) {
+    init_relevant_endpoint_host(N);
+  } else {
+    init_relevant_endpoint_host_64(N);
+  }
+  init_line_table_host();
+}
 
 // --- Inline implementation -------------------------------------------------
 

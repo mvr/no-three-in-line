@@ -6,6 +6,11 @@
 #include "board.cu"
 #include "compare_with_unknowns.cuh"
 
+#include <algorithm>
+#include <cmath>
+#include <numeric>
+#include <vector>
+
 __device__ uint32_t *g_line_table_32 = nullptr;
 
 struct ForcedCell {
@@ -30,6 +35,8 @@ struct ThreeBoard {
 
   static _DI_ BitBoard<W> bounds();
   static _DI_ BitBoard<W> relevant_endpoint(cuda::std::pair<unsigned, unsigned> p);
+  static void init_line_table_host();
+  static void init_tables_host();
 
   _DI_ bool consistent() const;
   _DI_ bool complete() const;
@@ -67,6 +74,92 @@ struct ThreeBoard {
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoard<N, W>::bounds() {
   return BitBoard<W>::rect(N, N);
+}
+
+template <unsigned N, unsigned W>
+inline void ThreeBoard<N, W>::init_line_table_host() {
+  if constexpr (W == 32) {
+    static uint32_t *d_line_table = nullptr;
+    const unsigned cell_count = N * N;
+    const unsigned rows = LINE_ROWS;
+    const size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
+    const size_t total_rows = total_entries * rows;
+
+    std::vector<uint32_t> host_table(total_rows, 0u);
+
+    for (unsigned py = 0; py < N; ++py) {
+      for (unsigned px = 0; px < N; ++px) {
+        const unsigned p_idx = py * N + px;
+        for (unsigned qy = 0; qy < N; ++qy) {
+          for (unsigned qx = 0; qx < N; ++qx) {
+            const unsigned q_idx = qy * N + qx;
+            if (p_idx == q_idx) {
+              continue;
+            }
+
+            unsigned pyy = py;
+            unsigned pxx = px;
+            unsigned qyy = qy;
+            unsigned qxx = qx;
+            if (pyy > qyy) {
+              std::swap(pyy, qyy);
+              std::swap(pxx, qxx);
+            }
+
+            const int dx = static_cast<int>(qxx) - static_cast<int>(pxx);
+            const unsigned dy = qyy - pyy;
+            if (dy == 0) {
+              continue;
+            }
+
+            const unsigned adx = static_cast<unsigned>(std::abs(dx));
+            const unsigned g = std::gcd(adx, dy);
+            const unsigned delta_y = dy / g;
+            const int delta_x = (dx < 0 ? -1 : 1) * static_cast<int>(adx / g);
+
+            const unsigned p_quo = pyy / delta_y;
+            const unsigned p_rem = pyy % delta_y;
+
+            uint32_t *mask = &host_table[(static_cast<size_t>(p_idx) * cell_count + q_idx) * rows];
+            for (unsigned r = 0; r < N; ++r) {
+              if (r % delta_y != p_rem) {
+                continue;
+              }
+              const int col =
+                  static_cast<int>(pxx) + (static_cast<int>(r / delta_y) - static_cast<int>(p_quo)) * delta_x;
+              if (col >= 0 && col < static_cast<int>(N)) {
+                mask[r] |= (uint32_t(1) << col);
+              }
+            }
+
+            mask[py] &= ~(uint32_t(1) << px);
+            mask[qy] &= ~(uint32_t(1) << qx);
+          }
+        }
+      }
+    }
+
+    if (d_line_table != nullptr) {
+      cudaFree(d_line_table);
+      d_line_table = nullptr;
+    }
+    cudaMalloc((void **)&d_line_table, total_rows * sizeof(uint32_t));
+    cudaMemcpy(d_line_table, host_table.data(), total_rows * sizeof(uint32_t), cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(g_line_table_32, &d_line_table, sizeof(d_line_table));
+  }
+}
+
+template <unsigned N, unsigned W>
+inline void ThreeBoard<N, W>::init_tables_host() {
+  if constexpr (W == 32) {
+    init_lookup_tables_host();
+    init_relevant_endpoint_host(N);
+    init_relevant_endpoint_host_64(N);
+    init_line_table_host();
+  } else {
+    init_lookup_tables_host();
+    init_relevant_endpoint_host_64(N);
+  }
 }
 
 template <unsigned N, unsigned W>
