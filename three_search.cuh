@@ -165,8 +165,7 @@ __device__ typename Traits::Cell pick_best_branch_cell(const typename Traits::Bo
   unsigned best_y = 0;
 
   cuda::std::pair<int, int> cell;
-  while (unknown.some_on_if_any(cell)) {
-    unknown.erase(cell);
+  while (unknown.pop_on_if_any(cell)) {
     unsigned x = cell.first;
     unsigned y = cell.second;
 

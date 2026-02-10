@@ -89,8 +89,7 @@ template <unsigned N>
 _DI_ FullBitBoardT<N> expand_mask_test(BitBoard<32> mask) {
   FullBitBoardT<N> result;
   cuda::std::pair<int, int> cell;
-  while (mask.some_on_if_any(cell)) {
-    mask.erase(cell);
+  while (mask.pop_on_if_any(cell)) {
     ThreeBoardC4<N>::for_each_orbit_point(cell, [&](cuda::std::pair<int, int> pt) {
       const int full_x = pt.first + static_cast<int>(N);
       const int full_y = pt.second + static_cast<int>(N);

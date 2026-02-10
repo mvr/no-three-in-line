@@ -107,7 +107,7 @@ struct BitBoard {
 
   _DI_ cuda::std::pair<int, int> first_on() const;
   _DI_ cuda::std::pair<int, int> some_on() const;
-  _DI_ bool some_on_if_any(cuda::std::pair<int, int> &out) const;
+  _DI_ bool pop_on_if_any(cuda::std::pair<int, int> &out);
   _DI_ void on_cells(cuda::std::pair<uint8_t, uint8_t> cells[]) const;
 
   _DI_ static BitBoard<W> positions_before(int x, int y);
@@ -375,7 +375,7 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::some_on() const {
   } else {
     uint32_t lane_mask = state.x | state.y | state.z | state.w;
     uint32_t active_lanes = __ballot_sync(0xffffffff, lane_mask != 0);
-    unsigned lane = find_first_set<32>(active_lanes);
+    unsigned lane = find_last_set<32>(active_lanes);
 
     unsigned x = 0;
     unsigned y = 0;
@@ -386,10 +386,10 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::some_on() const {
       uint64_t odd = ((uint64_t)state.w << 32) | state.z;
 
       if (odd) {
-        x = find_first_set<64>(odd);
+        x = find_last_set<64>(odd);
         y = y_base + 1;
       } else {
-        x = find_first_set<64>(even);
+        x = find_last_set<64>(even);
         y = y_base;
       }
     }
@@ -402,41 +402,57 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::some_on() const {
 }
 
 template<unsigned W>
-_DI_ bool BitBoard<W>::some_on_if_any(cuda::std::pair<int, int> &out) const {
+_DI_ bool BitBoard<W>::pop_on_if_any(cuda::std::pair<int, int> &out) {
   if constexpr (W == 32) {
-    uint32_t mask = __ballot_sync(0xffffffff, state);
+    const uint32_t mask = __ballot_sync(0xffffffff, state);
     if (mask == 0) {
       return false;
     }
 
-    unsigned lane = find_last_set<32>(mask);
-    unsigned x = find_last_set<32>(state);
-    x = __shfl_sync(0xffffffff, x, lane);
+    const unsigned lane = find_last_set<32>(mask);
+    const uint32_t lane_state = __shfl_sync(0xffffffff, state, lane);
+    const unsigned x = find_last_set<32>(lane_state);
+
+    if ((threadIdx.x & 31) == lane) {
+      state &= ~(1u << x);
+    }
 
     out = {x, lane};
     return true;
   } else {
-    uint32_t lane_mask = state.x | state.y | state.z | state.w;
-    uint32_t active_lanes = __ballot_sync(0xffffffff, lane_mask != 0);
+    const uint32_t lane_mask = state.x | state.y | state.z | state.w;
+    const uint32_t active_lanes = __ballot_sync(0xffffffff, lane_mask != 0);
     if (active_lanes == 0) {
       return false;
     }
 
-    unsigned lane = find_first_set<32>(active_lanes);
+    const unsigned lane = find_last_set<32>(active_lanes);
     unsigned x = 0;
     unsigned y = 0;
 
     if ((threadIdx.x & 31) == lane) {
-      unsigned y_base = lane << 1;
-      uint64_t even = ((uint64_t)state.y << 32) | state.x;
-      uint64_t odd = ((uint64_t)state.w << 32) | state.z;
+      const unsigned y_base = lane << 1;
+      const uint64_t even = (static_cast<uint64_t>(state.y) << 32) | state.x;
+      const uint64_t odd = (static_cast<uint64_t>(state.w) << 32) | state.z;
 
       if (odd) {
-        x = find_first_set<64>(odd);
+        x = find_last_set<64>(odd);
         y = y_base + 1;
+        const uint32_t bit = 1u << (x & 31);
+        if (x < 32) {
+          state.z &= ~bit;
+        } else {
+          state.w &= ~bit;
+        }
       } else {
-        x = find_first_set<64>(even);
+        x = find_last_set<64>(even);
         y = y_base;
+        const uint32_t bit = 1u << (x & 31);
+        if (x < 32) {
+          state.x &= ~bit;
+        } else {
+          state.y &= ~bit;
+        }
       }
     }
 

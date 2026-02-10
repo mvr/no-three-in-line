@@ -685,8 +685,7 @@ template <unsigned N, unsigned W>
 _DI_ void ThreeBoardD2<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<W> qs = known_on;
   cuda::std::pair<int, int> q;
-  while (qs.some_on_if_any(q)) {
-    qs.erase(q);
+  while (qs.pop_on_if_any(q)) {
     known_off |= eliminate_line(p, q);
     if (!consistent()) {
       return;
@@ -698,13 +697,11 @@ _DI_ void ThreeBoardD2<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsi
 template <unsigned N, unsigned W>
 _DI_ void ThreeBoardD2<N, W>::eliminate_all_lines(BitBoard<W> seed) {
   cuda::std::pair<int, int> p;
-  while (seed.some_on_if_any(p)) {
-    seed.erase(p);
+  while (seed.pop_on_if_any(p)) {
 
     BitBoard<W> qs = known_on & ~seed;
     cuda::std::pair<int, int> q;
-    while (qs.some_on_if_any(q)) {
-      qs.erase(q);
+    while (qs.pop_on_if_any(q)) {
       known_off |= eliminate_line(p, q);
       if (!consistent()) {
         return;

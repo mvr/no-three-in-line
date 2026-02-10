@@ -846,8 +846,7 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
     const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
     cuda::std::pair<int, int> q;
-    while (qs.some_on_if_any(q)) {
-      qs.erase(q);
+    while (qs.pop_on_if_any(q)) {
       const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
       const uint32_t row = __ldg(base + q_idx * LINE_ROWS + lane);
       known_off |= BitBoard<32>(row);
@@ -857,11 +856,10 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
     }
   } else {
     cuda::std::pair<int, int> q;
-    while (qs.some_on_if_any(q)) {
+    while (qs.pop_on_if_any(q)) {
       known_off |= eliminate_line(p, q);
       if (!consistent())
         return;
-      qs.erase(q);
     }
     known_off &= bounds();
   }
@@ -871,7 +869,7 @@ template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
   cuda::std::pair<int, int> p;
-  while (ps.some_on_if_any(p)) {
+  while (ps.pop_on_if_any(p)) {
     BitBoard<W> qs = known_on & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
 
     if constexpr (W == 32) {
@@ -880,8 +878,7 @@ ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
       const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
       cuda::std::pair<int, int> q;
-      while (qs.some_on_if_any(q)) {
-        qs.erase(q);
+      while (qs.pop_on_if_any(q)) {
         const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
         const uint32_t row = __ldg(base + q_idx * LINE_ROWS + lane);
         known_off |= BitBoard<32>(row);
@@ -891,14 +888,12 @@ ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
       }
     } else {
       cuda::std::pair<int, int> q;
-      while (qs.some_on_if_any(q)) {
+      while (qs.pop_on_if_any(q)) {
         known_off |= eliminate_line(p, q);
         if (!consistent())
           return;
-        qs.erase(q);
       }
     }
-    ps.erase(p);
     known_off &= bounds();
   }
 }
@@ -916,11 +911,10 @@ template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_one_hop(BitBoard<W> ps) {
   cuda::std::pair<int, int> p;
-  while (ps.some_on_if_any(p)) {
+  while (ps.pop_on_if_any(p)) {
     BitBoard<W> to_eliminate = known_on.mirror_around(p);
     to_eliminate.erase_row(p.second);
     known_off |= to_eliminate;
-    ps.erase(p);
   }
 
   known_off &= bounds();

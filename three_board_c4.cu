@@ -839,8 +839,7 @@ _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsi
         g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
     cuda::std::pair<int, int> q;
-    while (qs.some_on_if_any(q)) {
-      qs.erase(q);
+    while (qs.pop_on_if_any(q)) {
       const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
       const uint32_t row = (lane < LINE_ROWS) ? __ldg(base + q_idx * LINE_ROWS + lane) : 0u;
       known_off |= BitBoard<32>(row);
@@ -850,8 +849,7 @@ _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsi
     }
   } else {
     cuda::std::pair<int, int> q;
-    while (qs.some_on_if_any(q)) {
-      qs.erase(q);
+    while (qs.pop_on_if_any(q)) {
       known_off |= eliminate_line(p, {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
       if (!consistent()) {
         return;
@@ -865,8 +863,7 @@ template <unsigned N, unsigned W>
 _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines_slow(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<W> qs = known_on;
   cuda::std::pair<int, int> q;
-  while (qs.some_on_if_any(q)) {
-    qs.erase(q);
+  while (qs.pop_on_if_any(q)) {
     known_off |= eliminate_line_slow(p, {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
     if (!consistent())
       return;
@@ -877,8 +874,7 @@ _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines_slow(cuda::std::pair<unsigned,
 template <unsigned N, unsigned W>
 _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines(BitBoard<W> ps) {
   cuda::std::pair<int, int> p;
-  while (ps.some_on_if_any(p)) {
-    ps.erase(p);
+  while (ps.pop_on_if_any(p)) {
 
     BitBoard<W> qs = known_on & ~ps;
     if constexpr (W == 32) {
@@ -888,8 +884,7 @@ _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines(BitBoard<W> ps) {
           g_c4_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
       cuda::std::pair<int, int> q;
-      while (qs.some_on_if_any(q)) {
-        qs.erase(q);
+      while (qs.pop_on_if_any(q)) {
         const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
         const uint32_t row = (lane < LINE_ROWS) ? __ldg(base + q_idx * LINE_ROWS + lane) : 0u;
         known_off |= BitBoard<32>(row);
@@ -899,8 +894,7 @@ _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines(BitBoard<W> ps) {
       }
     } else {
       cuda::std::pair<int, int> q;
-      while (qs.some_on_if_any(q)) {
-        qs.erase(q);
+      while (qs.pop_on_if_any(q)) {
         known_off |= eliminate_line({static_cast<unsigned>(p.first), static_cast<unsigned>(p.second)},
                                     {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
         if (!consistent()) {
@@ -915,13 +909,11 @@ _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines(BitBoard<W> ps) {
 template <unsigned N, unsigned W>
 _DI_ void ThreeBoardC4<N, W>::eliminate_all_lines_slow(BitBoard<W> ps) {
   cuda::std::pair<int, int> p;
-  while (ps.some_on_if_any(p)) {
-    ps.erase(p);
+  while (ps.pop_on_if_any(p)) {
 
     BitBoard<W> qs = known_on & ~ps;
     cuda::std::pair<int, int> q;
-    while (qs.some_on_if_any(q)) {
-      qs.erase(q);
+    while (qs.pop_on_if_any(q)) {
       known_off |= eliminate_line_slow(p, q);
       if (!consistent())
         return;
