@@ -7,6 +7,11 @@
 #include "board.cu"
 #include "three_board.cu"
 
+template <unsigned N>
+void init_threeboard_tables_for_test() {
+  ThreeBoard<N, 32>::init_tables_host();
+}
+
 template <unsigned N, unsigned W>
 __global__ void three_bounds_kernel(board_row_t<W> *a) {
   BitBoard<W> bds = ThreeBoard<N, W>::bounds();
@@ -164,12 +169,13 @@ __global__ void consistent_kernel(board_row_t<W> *a, bool *result) {
   board.known_on = BitBoard<W>::load(a);
   board.eliminate_all_lines();
   board.propagate();
-  board.soft_branch_all();
   *result = board.consistent();
 }
 
 template <unsigned N, unsigned W>
 void test_consistent(const board_array_t<W> &input_known_on, bool expected_consistent) {
+  init_threeboard_tables_for_test<N>();
+
   board_row_t<W> *d_a;
   bool *d_result;
 

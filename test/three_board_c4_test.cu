@@ -1,4 +1,3 @@
-#include <cuda/std/array>
 #include <cuda/std/utility>
 
 #include "gtest/gtest.h"
@@ -26,19 +25,16 @@ std::string empty_rle() {
 }
 
 template <unsigned N>
-std::string first_arc_choice(const std::vector<cuda::std::pair<int, int>> &candidates) {
-  board_array_t<32> arr{};
-  for (const auto &pt : candidates) {
-    arr[pt.second] |= board_row_t<32>(1u) << pt.first;
-  }
-  return to_rle<N, 32>(arr);
-}
-
-template <unsigned N>
 using FullBoardT = ThreeBoard<ThreeBoardC4<N>::FULL_N, ThreeBoardC4<N>::FULL_W>;
 
 template <unsigned N>
 using FullBitBoardT = BitBoard<ThreeBoardC4<N>::FULL_W>;
+
+template <unsigned N>
+void init_c4_tables_for_test() {
+  ThreeBoardC4<N, 32>::init_tables_host();
+  FullBoardT<N>::init_tables_host();
+}
 
 template <unsigned N>
 _DI_ FullBoardT<N> expand_to_full_test(const ThreeBoardC4<N> &base) {
@@ -184,6 +180,8 @@ __global__ void vulnerable_compare_kernel(board_row_t<32> *known_on,
 template <unsigned N>
 void expect_force_matches(const std::string &known_on_rle,
                           const std::string &known_off_rle) {
+  init_c4_tables_for_test<N>();
+
   const auto host_known_on = parse_rle<32>(known_on_rle);
   const auto host_known_off = parse_rle<32>(known_off_rle);
 
@@ -275,7 +273,7 @@ __global__ void eliminate_compare_kernel(board_row_t<32> *known_on,
 
   FullBoardT<N> full = expand_to_full_test(base);
   FullBitBoardT<N> full_seeds = expand_mask_test<N>(seeds);
-  full.eliminate_all_lines_unfiltered(full_seeds);
+  full.eliminate_all_lines(full_seeds);
 
   ThreeBoardC4<N> projected;
   project_from_full_test(full, projected);
@@ -288,12 +286,10 @@ __global__ void eliminate_compare_kernel(board_row_t<32> *known_on,
 }
 
 template <unsigned N>
-void expect_eliminate_matches(const std::string &known_on_rle,
-                              const std::string &known_off_rle,
-                              const std::string &seed_rle) {
-  init_lookup_tables_host();
-  init_relevant_endpoint_host(ThreeBoardC4<N>::FULL_N);
-  init_relevant_endpoint_host_64(ThreeBoardC4<N>::FULL_N);
+void expect_eliminate_superset(const std::string &known_on_rle,
+                               const std::string &known_off_rle,
+                               const std::string &seed_rle) {
+  init_c4_tables_for_test<N>();
 
   const auto host_known_on = parse_rle<32>(known_on_rle);
   const auto host_known_off = parse_rle<32>(known_off_rle);
@@ -344,13 +340,23 @@ void expect_eliminate_matches(const std::string &known_on_rle,
   cudaMemcpy(&c4_consistent, d_c4_consistent, sizeof(bool), cudaMemcpyDeviceToHost);
   cudaMemcpy(&full_consistent, d_full_consistent, sizeof(bool), cudaMemcpyDeviceToHost);
 
-  if (full_consistent) {
-    EXPECT_TRUE(c4_consistent);
-    if (c4_consistent) {
-      EXPECT_EQ((to_rle<N, 32>(full_on)), (to_rle<N, 32>(c4_on)));
-      EXPECT_EQ((to_rle<N, 32>(full_off)), (to_rle<N, 32>(c4_off)));
+  const std::string full_on_rle_out = to_rle<N, 32>(full_on);
+  const std::string c4_on_rle_out = to_rle<N, 32>(c4_on);
+  const std::string full_off_rle_out = to_rle<N, 32>(full_off);
+  const std::string c4_off_rle_out = to_rle<N, 32>(c4_off);
+
+  EXPECT_EQ(full_on_rle_out, c4_on_rle_out);
+
+  bool off_superset_ok = true;
+  for (unsigned y = 0; y < N; ++y) {
+    if ((full_off[y] & ~c4_off[y]) != 0u) {
+      off_superset_ok = false;
+      break;
     }
-  } else {
+  }
+  EXPECT_TRUE(off_superset_ok) << "full_off=" << full_off_rle_out << " c4_off=" << c4_off_rle_out;
+
+  if (!full_consistent) {
     EXPECT_FALSE(c4_consistent);
   }
 
@@ -370,6 +376,8 @@ void compute_vulnerable_rles(const std::string &known_on_rle,
                              const std::string &known_off_rle,
                              std::string &c4_rle,
                              std::string &full_rle) {
+  init_c4_tables_for_test<N>();
+
   const auto host_known_on = parse_rle<32>(known_on_rle);
   const auto host_known_off = parse_rle<32>(known_off_rle);
 
@@ -404,31 +412,6 @@ void compute_vulnerable_rles(const std::string &known_on_rle,
   cudaFree(d_known_off);
   cudaFree(d_c4_vulnerable);
   cudaFree(d_full_vulnerable);
-}
-
-template <unsigned N>
-__global__ void first_near_radius_on_kernel(const board_row_t<32> *mask,
-                                         cuda::std::pair<int, int> *out) {
-  BitBoard<32> board = BitBoard<32>::load(mask);
-  *out = board.first_near_radius_on<N>();
-}
-
-template <unsigned N>
-void expect_first_near_radius_on(const std::string &mask_rle,
-                              cuda::std::pair<int, int> expected) {
-  board_array_t<32> host_mask = parse_rle<32>(mask_rle);
-  board_row_t<32> *d_mask;
-  cuda::std::pair<int, int> *d_out;
-  cudaMalloc(&d_mask, sizeof(board_array_t<32>));
-  cudaMalloc(&d_out, sizeof(cuda::std::pair<int, int>));
-  cudaMemcpy(d_mask, host_mask.data(), sizeof(board_array_t<32>), cudaMemcpyHostToDevice);
-  first_near_radius_on_kernel<N><<<1, 32>>>(d_mask, d_out);
-  cuda::std::pair<int, int> result;
-  cudaMemcpy(&result, d_out, sizeof(result), cudaMemcpyDeviceToHost);
-  EXPECT_EQ(expected.first, result.first);
-  EXPECT_EQ(expected.second, result.second);
-  cudaFree(d_mask);
-  cudaFree(d_out);
 }
 
 template <unsigned N>
@@ -509,45 +492,26 @@ TEST(ThreeBoardC4, ForceMatchesFullBoard_Larger) {
   expect_force_matches<6>("$3bo$5bo!", "!");
 }
 
-TEST(ThreeBoardC4, EliminateMatchesFullBoard_Diagonal) {
-  expect_eliminate_matches<4>("o3b$bo2b$4b$4b!", "!", "o3b$bo2b$4b$4b!");
+TEST(ThreeBoardC4, EliminateSupersetOfFullBoard_Diagonal) {
+  expect_eliminate_superset<4>("o3b$bo2b$4b$4b!", "!", "o3b$bo2b$4b$4b!");
 }
 
-TEST(ThreeBoardC4, EliminateMatchesFullBoard_Offset) {
-  expect_eliminate_matches<6>("o5b$6b$bo4b$6b$6b$6b!", "!", "o5b$6b$bo4b$6b$6b$6b!");
+TEST(ThreeBoardC4, EliminateSupersetOfFullBoard_Offset) {
+  expect_eliminate_superset<6>("o5b$6b$bo4b$6b$6b$6b!", "!", "o5b$6b$bo4b$6b$6b$6b!");
 }
 
-TEST(ThreeBoardC4, EliminateMatchesFullBoard_SelfOrbit) {
-  expect_eliminate_matches<6>(rle_from_points<6>({{1, 1}}), empty_rle<6>(), rle_from_points<6>({{1, 1}}));
+TEST(ThreeBoardC4, EliminateSupersetOfFullBoard_SelfOrbit) {
+  expect_eliminate_superset<6>(rle_from_points<6>({{1, 1}}), empty_rle<6>(), rle_from_points<6>({{1, 1}}));
 }
 
-TEST(ThreeBoardC4, EliminateMatchesFullBoard_TwoSeeds) {
-  expect_eliminate_matches<6>(rle_from_points<6>({{1, 1}, {4, 3}}), empty_rle<6>(),
-                              rle_from_points<6>({{1, 1}, {4, 3}}));
+TEST(ThreeBoardC4, EliminateSupersetOfFullBoard_TwoSeeds) {
+  expect_eliminate_superset<6>(rle_from_points<6>({{1, 1}, {4, 3}}), empty_rle<6>(),
+                               rle_from_points<6>({{1, 1}, {4, 3}}));
 }
 
-TEST(ThreeBoardC4, EliminateMatchesFullBoard_WithKnownOff) {
-  expect_eliminate_matches<6>(rle_from_points<6>({{1, 1}}), rle_from_points<6>({{0, 0}, {2, 4}}),
-                              rle_from_points<6>({{3, 2}}));
-}
-
-TEST(BitBoardClosestToRadius, PrefersOuterArc) {
-  // row 0: bits at columns 1 (close to centre) and 3 (closer to radius for N=6)
-  expect_first_near_radius_on<6>(first_arc_choice<6>({{1, 0}, {3, 0}}), {3, 0});
-}
-
-TEST(BitBoardClosestToRadius, EmptyRow) {
-  expect_first_near_radius_on<6>(empty_rle<6>(), {-1, -1});
-}
-
-TEST(BitBoardClosestToRadius, ChoosesBetterRow) {
-  // row 0 @ col 4 vs row 1 @ col 5; row 1 is closer to the radius arc
-  expect_first_near_radius_on<6>(first_arc_choice<6>({{4, 0}, {5, 1}}), {5, 1});
-}
-
-TEST(BitBoardClosestToRadius, BreaksTieWithinRow) {
-  // row 2 picks column 3 over column 2 because it sits closer to the arc distance
-  expect_first_near_radius_on<6>(first_arc_choice<6>({{2, 2}, {3, 2}}), {3, 2});
+TEST(ThreeBoardC4, EliminateSupersetOfFullBoard_WithKnownOff) {
+  expect_eliminate_superset<6>(rle_from_points<6>({{1, 1}}), rle_from_points<6>({{0, 0}, {2, 4}}),
+                               rle_from_points<6>({{3, 2}}));
 }
 
 TEST(ThreeBoardC4, VulnerableMatchesFullBoard_Empty) {

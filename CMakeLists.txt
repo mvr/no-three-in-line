@@ -27,8 +27,8 @@ if(DEFINED THREE_N)
   add_compile_definitions(THREE_N=${THREE_N})
 endif()
 
-# enable_testing()
-# add_subdirectory(test)
+enable_testing()
+add_subdirectory(test)
 
 add_executable(three main.cpp three_kernel.cu)
 add_executable(three_c4 main_c4.cpp three_kernel_c4.cu)
