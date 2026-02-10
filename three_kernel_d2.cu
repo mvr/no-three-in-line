@@ -44,6 +44,38 @@ __device__ void resolve_outcome_row(const ThreeBoardD2<N, W> &board,
 }
 
 template <unsigned N, unsigned W>
+__device__ void resolve_outcome_col(const ThreeBoardD2<N, W> &board,
+                                    unsigned col,
+                                    DeviceStack<W> *stack) {
+  constexpr board_row_t<W> row_mask =
+      (N == W) ? ~board_row_t<W>(0) : ((board_row_t<W>(1) << N) - 1);
+
+  board_row_t<W> col_known_on = board.known_on.column(col) & row_mask;
+  board_row_t<W> col_known_off = board.known_off.column(col) & row_mask;
+  board_row_t<W> remaining = ~col_known_on & ~col_known_off & row_mask;
+
+  ThreeBoardD2<N, W> tried_board = board;
+
+  while (remaining != 0) {
+    const unsigned row = pick_center_col<N, W>(remaining);
+
+    ThreeBoardD2<N, W> sub_board = tried_board;
+    sub_board.known_on.set({col, row});
+    sub_board.eliminate_all_lines({col, row});
+    sub_board.propagate();
+
+    if (sub_board.consistent()) {
+      stack_push<W>(stack, sub_board.known_on, sub_board.known_off);
+    } else {
+      stats_record(StatId::InconsistentNodes);
+    }
+
+    tried_board.known_off.set({col, row});
+    remaining &= ~(board_row_t<W>(1) << row);
+  }
+}
+
+template <unsigned N, unsigned W>
 struct D2Traits {
   static constexpr unsigned kN = ThreeBoardD2<N, W>::FULL_N;
   static constexpr unsigned kW = W;
@@ -52,23 +84,22 @@ struct D2Traits {
   static constexpr unsigned kCellBranchColSpan = N;
   static constexpr unsigned kRowOnZeroUnknownNum = 7;
   static constexpr unsigned kRowOnZeroUnknownDen = 4;
-  static constexpr unsigned kCellBranchRowUnknownThreshold = 4;
+  static constexpr unsigned kRowBranchUnknownThreshold = 3;
+  static constexpr unsigned kColumnBranchUnknownThreshold = 5;
+  static constexpr unsigned kColumnVsRowUnknownNum = 3;
+  static constexpr unsigned kColumnVsRowUnknownDen = 2;
   static constexpr int kCellBranchWColUnknown = 8;
   static constexpr int kCellBranchWRowUnknown = 0;
   static constexpr int kCellBranchWColOn = 4;
   static constexpr int kCellBranchWColOff = 8;
   static constexpr int kCellBranchWEndpointOn = 0;
-  static constexpr bool kEnableSemiQuasi = false;
+  static constexpr bool kEnableSemiQuasi = true;
 
   using Board = ThreeBoardD2<N, W>;
   using Problem = Problem<W>;
   using Stack = DeviceStack<W>;
   using Output = OutputBuffer<W>;
   using Cell = cuda::std::pair<unsigned, unsigned>;
-  struct BranchRowChoice {
-    unsigned row;
-    unsigned unknown;
-  };
 
   static void init_host() {
     Board::init_tables_host();
@@ -147,6 +178,11 @@ struct D2Traits {
     }
     return {best_x, best_y};
   }
+
+  struct BranchRowChoice {
+    unsigned row;
+    unsigned unknown;
+  };
 
   _DI_ static BranchRowChoice pick_branch_row(const Board &board) {
     const unsigned lane = threadIdx.x & 31;
@@ -232,23 +268,77 @@ struct D2Traits {
     return {0u, 0u};
   }
 
+  struct BranchColChoice {
+    unsigned col;
+    unsigned unknown;
+  };
+
+  _DI_ static BranchColChoice pick_branch_col(const Board &board) {
+    constexpr unsigned full_n = Board::FULL_N;
+    constexpr board_row_t<W> row_mask =
+        (N == W) ? ~board_row_t<W>(0) : ((board_row_t<W>(1) << N) - 1);
+
+    unsigned best_col = 0;
+    unsigned best_unknown = 0xffffffffu;
+
+    for (unsigned col = 0; col < full_n; ++col) {
+      const unsigned col_on = board.known_on.column_pop(col);
+      const unsigned col_off = board.known_off.column_pop(col);
+      const unsigned col_unknown = N - col_on - col_off;
+      if (col_on == 0 && col_unknown > 0) {
+        if (col_unknown < best_unknown ||
+            (col_unknown == best_unknown && col < best_col)) {
+          best_col = col;
+          best_unknown = col_unknown;
+        }
+      }
+    }
+
+    return {best_col, best_unknown};
+  }
+
   _DI_ static void seed_initial(Stack *stack) {
     Board board;
     stack_push<W>(stack, board.known_on, board.known_off);
   }
 
   _DI_ static void branch_fallback(const Board &board, Stack *stack) {
-    const BranchRowChoice choice = pick_branch_row(board);
-    const unsigned row = choice.row;
-    const unsigned row_unknown = choice.unknown;
-    if (row_unknown >= kCellBranchRowUnknownThreshold) {
-      auto cell = pick_best_branch_cell<D2Traits>(board);
-      stats_record(StatId::CellBranches);
-      resolve_outcome_cell<D2Traits>(board, cell, stack);
-    } else {
-      stats_record(StatId::RowBranches);
-      resolve_outcome_row<N, W>(board, row, stack);
+    const BranchColChoice col_choice = pick_branch_col(board);
+    const BranchRowChoice row_choice = pick_branch_row(board);
+
+    const bool row_meets = (row_choice.unknown != 0xffffffffu) &&
+                           (row_choice.unknown <= kRowBranchUnknownThreshold);
+    const bool col_meets = (col_choice.unknown != 0xffffffffu) &&
+                           (col_choice.unknown <= kColumnBranchUnknownThreshold);
+
+    if (row_meets && col_meets) {
+      const bool choose_col = (col_choice.unknown * kColumnVsRowUnknownDen) <=
+                              (row_choice.unknown * kColumnVsRowUnknownNum);
+      if (choose_col) {
+        stats_record(StatId::RowBranches);
+        resolve_outcome_col<N, W>(board, col_choice.col, stack);
+      } else {
+        stats_record(StatId::RowBranches);
+        resolve_outcome_row<N, W>(board, row_choice.row, stack);
+      }
+      return;
     }
+
+    if (col_meets) {
+      stats_record(StatId::RowBranches);
+      resolve_outcome_col<N, W>(board, col_choice.col, stack);
+      return;
+    }
+
+    if (row_meets) {
+      stats_record(StatId::RowBranches);
+      resolve_outcome_row<N, W>(board, row_choice.row, stack);
+      return;
+    }
+
+    auto cell = pick_best_branch_cell<D2Traits>(board);
+    stats_record(StatId::CellBranches);
+    resolve_outcome_cell<D2Traits>(board, cell, stack);
   }
 
   static void expand_half_to_full(const board_array_t<W> &half, board_array_t<Board::FULL_W> &expanded) {
