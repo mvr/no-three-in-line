@@ -8,8 +8,7 @@
 #include <cuda/std/utility>
 
 __device__ const uint32_t *__restrict__ g_c4_line_table_32 = nullptr;
-__device__ const uint64_t *__restrict__ g_c4_line_table_64_even = nullptr;
-__device__ const uint64_t *__restrict__ g_c4_line_table_64_odd = nullptr;
+__device__ const ulonglong2 *__restrict__ g_c4_line_table_64 = nullptr;
 
 // C4-symmetric board 2N × 2N for N up to 64. Stores only the
 // fundamental domain [0, N) × [0, N); the remaining three quadrants are
@@ -107,8 +106,7 @@ __global__ void init_c4_line_table_kernel_32(uint32_t *__restrict__ table) {
 }
 
 template <unsigned N>
-__global__ void init_c4_line_table_kernel_64(uint64_t *__restrict__ table_even,
-                                             uint64_t *__restrict__ table_odd) {
+__global__ void init_c4_line_table_kernel_64(ulonglong2 *__restrict__ table) {
   constexpr unsigned cell_count = N * N;
   constexpr unsigned line_rows = ThreeBoardC4<N, 64>::LINE_ROWS;
   const unsigned pair_idx = blockIdx.x;
@@ -133,18 +131,18 @@ __global__ void init_c4_line_table_kernel_64(uint64_t *__restrict__ table_even,
 
   if (lane < line_rows) {
     const size_t idx = static_cast<size_t>(pair_idx) * line_rows + lane;
-    table_even[idx] = (static_cast<uint64_t>(board.known_off.state.y) << 32) |
-                      static_cast<uint64_t>(board.known_off.state.x);
-    table_odd[idx] = (static_cast<uint64_t>(board.known_off.state.w) << 32) |
-                     static_cast<uint64_t>(board.known_off.state.z);
+    const uint64_t even = (static_cast<uint64_t>(board.known_off.state.y) << 32) |
+                          static_cast<uint64_t>(board.known_off.state.x);
+    const uint64_t odd = (static_cast<uint64_t>(board.known_off.state.w) << 32) |
+                         static_cast<uint64_t>(board.known_off.state.z);
+    table[idx] = make_ulonglong2(even, odd);
   }
 }
 
 template <unsigned N, unsigned W>
 inline void ThreeBoardC4<N, W>::init_line_table_host() {
   static uint32_t *d_table_32 = nullptr;
-  static uint64_t *d_table_even = nullptr;
-  static uint64_t *d_table_odd = nullptr;
+  static ulonglong2 *d_table_64 = nullptr;
 
   constexpr unsigned cell_count = N * N;
   constexpr size_t total_entries = static_cast<size_t>(cell_count) * cell_count;
@@ -160,18 +158,12 @@ inline void ThreeBoardC4<N, W>::init_line_table_host() {
     cudaGetLastError();
     cudaDeviceSynchronize();
   } else {
-    if (d_table_even != nullptr) {
-      cudaFree(d_table_even);
-      d_table_even = nullptr;
+    if (d_table_64 != nullptr) {
+      cudaFree(d_table_64);
+      d_table_64 = nullptr;
     }
-    if (d_table_odd != nullptr) {
-      cudaFree(d_table_odd);
-      d_table_odd = nullptr;
-    }
-    cudaMalloc((void **)&d_table_even, total_rows * sizeof(uint64_t));
-    cudaMalloc((void **)&d_table_odd, total_rows * sizeof(uint64_t));
-    init_c4_line_table_kernel_64<N><<<static_cast<unsigned>(total_entries), 32>>>(d_table_even,
-                                                                                    d_table_odd);
+    cudaMalloc((void **)&d_table_64, total_rows * sizeof(ulonglong2));
+    init_c4_line_table_kernel_64<N><<<static_cast<unsigned>(total_entries), 32>>>(d_table_64);
     cudaGetLastError();
     cudaDeviceSynchronize();
   }
@@ -179,8 +171,7 @@ inline void ThreeBoardC4<N, W>::init_line_table_host() {
   if constexpr (W == 32) {
     cudaMemcpyToSymbol(g_c4_line_table_32, &d_table_32, sizeof(d_table_32));
   } else {
-    cudaMemcpyToSymbol(g_c4_line_table_64_even, &d_table_even, sizeof(d_table_even));
-    cudaMemcpyToSymbol(g_c4_line_table_64_odd, &d_table_odd, sizeof(d_table_odd));
+    cudaMemcpyToSymbol(g_c4_line_table_64, &d_table_64, sizeof(d_table_64));
   }
 }
 
@@ -762,11 +753,12 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::eliminate_line(cuda::std::pair<unsigned, un
     const uint32_t row = (lane < LINE_ROWS) ? __ldg(table + base + lane) : 0u;
     return BitBoard<32>(row);
   } else {
-    const uint64_t *__restrict__ table_even = g_c4_line_table_64_even;
-    const uint64_t *__restrict__ table_odd = g_c4_line_table_64_odd;
+    const ulonglong2 *__restrict__ table = g_c4_line_table_64;
     BitBoard<64> result;
-    const uint64_t even_row = (lane < LINE_ROWS) ? __ldg(table_even + base + lane) : 0ull;
-    const uint64_t odd_row = (lane < LINE_ROWS) ? __ldg(table_odd + base + lane) : 0ull;
+    const ulonglong2 row =
+        (lane < LINE_ROWS) ? __ldg(table + base + lane) : make_ulonglong2(0ull, 0ull);
+    const uint64_t even_row = row.x;
+    const uint64_t odd_row = row.y;
     result.state.x = static_cast<uint32_t>(even_row);
     result.state.y = static_cast<uint32_t>(even_row >> 32);
     result.state.z = static_cast<uint32_t>(odd_row);
