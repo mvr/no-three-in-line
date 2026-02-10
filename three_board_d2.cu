@@ -6,9 +6,9 @@
 
 #include <cuda/std/utility>
 
-__device__ uint32_t *g_d2_line_table_32 = nullptr;
-__device__ uint64_t *g_d2_line_table_64_even = nullptr;
-__device__ uint64_t *g_d2_line_table_64_odd = nullptr;
+__device__ const uint32_t *__restrict__ g_d2_line_table_32 = nullptr;
+__device__ const uint64_t *__restrict__ g_d2_line_table_64_even = nullptr;
+__device__ const uint64_t *__restrict__ g_d2_line_table_64_odd = nullptr;
 
 // D2 reflection-symmetric board.
 // Full board is 2N x 2N, represented by storing the top half: N rows x 2N cols.
@@ -73,7 +73,7 @@ struct ThreeBoardD2 {
 };
 
 template <unsigned N>
-__global__ void init_d2_line_table_kernel_32(uint32_t *table) {
+__global__ void init_d2_line_table_kernel_32(uint32_t *__restrict__ table) {
   constexpr unsigned cell_count = N * (2 * N);
   constexpr unsigned line_rows = ThreeBoardD2<N, 32>::LINE_ROWS;
   const unsigned pair_idx = blockIdx.x;
@@ -98,7 +98,8 @@ __global__ void init_d2_line_table_kernel_32(uint32_t *table) {
 }
 
 template <unsigned N>
-__global__ void init_d2_line_table_kernel_64(uint64_t *table_even, uint64_t *table_odd) {
+__global__ void init_d2_line_table_kernel_64(uint64_t *__restrict__ table_even,
+                                             uint64_t *__restrict__ table_odd) {
   constexpr unsigned cell_count = N * (2 * N);
   constexpr unsigned line_rows = ThreeBoardD2<N, 64>::LINE_ROWS;
   const unsigned pair_idx = blockIdx.x;
@@ -647,12 +648,15 @@ _DI_ BitBoard<W> ThreeBoardD2<N, W>::eliminate_line(cuda::std::pair<unsigned, un
   const unsigned lane = threadIdx.x & 31;
 
   if constexpr (W == 32) {
-    const uint32_t row = (lane < LINE_ROWS) ? __ldg(g_d2_line_table_32 + base + lane) : 0u;
+    const uint32_t *__restrict__ table = g_d2_line_table_32;
+    const uint32_t row = (lane < LINE_ROWS) ? __ldg(table + base + lane) : 0u;
     return BitBoard<32>(row);
   } else {
+    const uint64_t *__restrict__ table_even = g_d2_line_table_64_even;
+    const uint64_t *__restrict__ table_odd = g_d2_line_table_64_odd;
     BitBoard<64> result;
-    const uint64_t even_row = (lane < LINE_ROWS) ? __ldg(g_d2_line_table_64_even + base + lane) : 0ull;
-    const uint64_t odd_row = (lane < LINE_ROWS) ? __ldg(g_d2_line_table_64_odd + base + lane) : 0ull;
+    const uint64_t even_row = (lane < LINE_ROWS) ? __ldg(table_even + base + lane) : 0ull;
+    const uint64_t odd_row = (lane < LINE_ROWS) ? __ldg(table_odd + base + lane) : 0ull;
 
     result.state.x = static_cast<uint32_t>(even_row);
     result.state.y = static_cast<uint32_t>(even_row >> 32);

@@ -221,12 +221,12 @@ __device__ void resolve_outcome_cell(const typename Traits::Board &board,
 }
 
 template <typename Traits>
-__global__ void initialize_stack_kernel(typename Traits::Stack *stack) {
+__global__ void initialize_stack_kernel(typename Traits::Stack *__restrict__ stack) {
   Traits::seed_initial(stack);
 }
 
 template <typename Traits>
-__global__ void initialize_stack_seed_kernel(typename Traits::Stack *stack,
+__global__ void initialize_stack_seed_kernel(typename Traits::Stack *__restrict__ stack,
                                              typename Traits::Problem seed) {
   auto board = Traits::Board::load_from(seed.known_on, seed.known_off);
   board.propagate();
@@ -238,8 +238,8 @@ __global__ void initialize_stack_seed_kernel(typename Traits::Stack *stack,
 }
 
 template <typename Traits, bool FrontierMode>
-__global__ void work_kernel(typename Traits::Stack *stack,
-                            typename Traits::Output *output,
+__global__ void work_kernel(typename Traits::Stack *__restrict__ stack,
+                            typename Traits::Output *__restrict__ output,
                             unsigned batch_start,
                             unsigned batch_size,
                             unsigned frontier_min_on) {

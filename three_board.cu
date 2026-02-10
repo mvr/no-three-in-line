@@ -11,7 +11,7 @@
 #include <numeric>
 #include <vector>
 
-__device__ uint32_t *g_line_table_32 = nullptr;
+__device__ const uint32_t *__restrict__ g_line_table_32 = nullptr;
 
 struct ForcedCell {
   bool has_force = false;
@@ -811,7 +811,9 @@ ThreeBoard<N, W>::eliminate_line(cuda::std::pair<unsigned, unsigned> p,
     constexpr unsigned cell_count = N * N;
     unsigned p_idx = p.second * N + p.first;
     unsigned q_idx = q.second * N + q.first;
-    const uint32_t *entry = g_line_table_32 + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_ROWS;
+    const uint32_t *__restrict__ table = g_line_table_32;
+    const uint32_t *__restrict__ entry =
+        table + (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_ROWS;
     const unsigned lane = threadIdx.x & 31;
     const uint32_t row = __ldg(entry + lane);
     return BitBoard<32>(row);
@@ -843,7 +845,8 @@ ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   if constexpr (W == 32) {
     const unsigned lane = threadIdx.x & 31;
     const unsigned p_idx = p.second * N + p.first;
-    const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
+    const uint32_t *__restrict__ table = g_line_table_32;
+    const uint32_t *__restrict__ base = table + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
     cuda::std::pair<int, int> q;
     while (qs.pop_on_if_any(q)) {
@@ -875,7 +878,8 @@ ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
     if constexpr (W == 32) {
       const unsigned lane = threadIdx.x & 31;
       const unsigned p_idx = static_cast<unsigned>(p.second) * N + static_cast<unsigned>(p.first);
-      const uint32_t *base = g_line_table_32 + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
+      const uint32_t *__restrict__ table = g_line_table_32;
+      const uint32_t *__restrict__ base = table + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
 
       cuda::std::pair<int, int> q;
       while (qs.pop_on_if_any(q)) {
