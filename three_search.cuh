@@ -387,24 +387,41 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
 
       cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
       if (overflow_count == 0) {
+        if (had_retry) {
+          std::cerr << "[warn] stack overflow, recovered"
+                    << " stack_size=" << start_size
+                    << " batch_size=" << batch_size
+                    << std::endl;
+        }
         break;
       }
 
       had_retry = true;
       cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
 
-      std::cerr << "[error] stack overflow (" << overflow_count
-                << " pushes) capacity=" << STACK_CAPACITY << std::endl;;
-
       if (batch_size <= 1) {
         break;
       }
 
+      const unsigned old_batch_size = batch_size;
       batch_size = batch_size > 1 ? (batch_size / 2) : 1;
       batch_start = start_size - batch_size;
+      std::cerr << "[warn] stack overflow, retrying"
+                << " stack_size=" << start_size
+                << " capacity=" << STACK_CAPACITY
+                << " overflow_count=" << overflow_count
+                << " batch_size=" << old_batch_size
+                << " next_batch_size=" << batch_size
+                << std::endl;
     }
 
     if (overflow_count > 0 && batch_size <= 1) {
+      std::cerr << "[error] stack overflow, unrecoverable"
+                << " stack_size=" << start_size
+                << " capacity=" << STACK_CAPACITY
+                << " batch_size=" << batch_size
+                << " overflow_count=" << overflow_count
+                << std::endl;
       break;
     }
 
@@ -447,17 +464,11 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
     cudaMemcpy(&output_count, &d_output->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
     cudaMemcpy(&output_overflow, &d_output->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
 
-    if constexpr (FrontierMode) {
-      if (output_overflow > 0) {
-        std::cerr << "[error] frontier buffer overflow (" << output_overflow
-                  << " drops) capacity=" << output_capacity << std::endl;
-        break;
-      }
-    } else {
-      if (output_overflow > 0) {
-        std::cerr << "[error] solution buffer overflow (" << output_overflow
-                  << " drops) capacity=" << output_capacity << std::endl;
-      }
+
+    if (output_overflow > 0) {
+      std::cerr << "[error] solution buffer overflow (" << output_overflow
+                << " drops) capacity=" << output_capacity << std::endl;
+      break;
     }
 
     if (output_count > 0) {
