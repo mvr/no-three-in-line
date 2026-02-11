@@ -8,7 +8,7 @@ const unsigned N = 17;
 
 const unsigned WARPS_PER_BLOCK = 4;
 const unsigned LAUNCH_MIN_BLOCKS = 12;
-const unsigned STACK_CAPACITY = 1 << 21;
+const unsigned STACK_CAPACITY = 1 << 23;
 const unsigned BATCH_MAX_SIZE = 1 << 16;
 const unsigned BATCH_WARMUP_SIZE = 1 << 12;
 constexpr float BATCH_FEEDBACK_TARGET_RATIO = 1.2f;
