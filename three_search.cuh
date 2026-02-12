@@ -238,6 +238,7 @@ __global__ void initialize_stack_seed_kernel(typename Traits::Stack *__restrict_
 }
 
 template <typename Traits, bool FrontierMode>
+__launch_bounds__(WARPS_PER_BLOCK * 32, LAUNCH_MIN_BLOCKS)
 __global__ void work_kernel(typename Traits::Stack *__restrict__ stack,
                             typename Traits::Output *__restrict__ output,
                             unsigned batch_start,
