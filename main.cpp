@@ -32,6 +32,3 @@ int main(int argc, char **argv) {
   }
   return solve_with_device_stack<N, 32>();
 }
-
-// Last pre-multistream commit:
-// https://gitlab.com/apgoucher/silk/-/commit/f4005091b4093f403e62570a44d135347d1f012f

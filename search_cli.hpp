@@ -6,7 +6,6 @@
 #include <string>
 
 struct SearchCliOptions {
-  std::string seed_rle;
   std::string seed_on_rle;
   std::string seed_off_rle;
   bool has_seed = false;
@@ -42,7 +41,6 @@ inline bool parse_search_cli(int argc,
     };
 
     auto parse_seed = [&](const std::string &value) {
-      out.seed_rle = value;
       const size_t sep = value.find('|');
       if (sep == std::string::npos) {
         out.seed_on_rle = value;
