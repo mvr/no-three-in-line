@@ -696,9 +696,9 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
     }
 
     BitBoard<32> unknown = ~known_on & ~known_off & bounds;
-    const BinaryCountSaturating3<32> on_count = BinaryCountSaturating3<32>::vertical(known_on.state);
     const BinaryCountSaturating3<32> unknown_count = BinaryCountSaturating3<32>::vertical(unknown.state);
-    const uint32_t on_zero = on_count.template eq_target<0>();
+    const uint32_t on_any = __reduce_or_sync(0xffffffff, known_on.state);
+    const uint32_t on_zero = ~on_any;
     const uint32_t unknown_eq = unknown_count.template eq_target<UnknownTarget>();
     result.state |= on_zero & unknown_eq;
   } else {
@@ -718,21 +718,19 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
 
     BitBoard<64> unknown = ~known_on & ~known_off & bounds;
 
-    const BinaryCountSaturating3<32> on_count_xz =
-        BinaryCountSaturating3<32>::vertical(known_on.state.x) + BinaryCountSaturating3<32>::vertical(known_on.state.z);
     const BinaryCountSaturating3<32> unknown_count_xz =
         BinaryCountSaturating3<32>::vertical(unknown.state.x) + BinaryCountSaturating3<32>::vertical(unknown.state.z);
-    const uint32_t on_zero_xz = on_count_xz.template eq_target<0>();
+    const uint32_t on_any_xz = __reduce_or_sync(0xffffffff, known_on.state.x | known_on.state.z);
+    const uint32_t on_zero_xz = ~on_any_xz;
     const uint32_t unknown_eq_xz = unknown_count_xz.template eq_target<UnknownTarget>();
     const uint32_t column_xz = on_zero_xz & unknown_eq_xz;
     result.state.x |= column_xz;
     result.state.z |= column_xz;
 
-    const BinaryCountSaturating3<32> on_count_yw =
-        BinaryCountSaturating3<32>::vertical(known_on.state.y) + BinaryCountSaturating3<32>::vertical(known_on.state.w);
     const BinaryCountSaturating3<32> unknown_count_yw =
         BinaryCountSaturating3<32>::vertical(unknown.state.y) + BinaryCountSaturating3<32>::vertical(unknown.state.w);
-    const uint32_t on_zero_yw = on_count_yw.template eq_target<0>();
+    const uint32_t on_any_yw = __reduce_or_sync(0xffffffff, known_on.state.y | known_on.state.w);
+    const uint32_t on_zero_yw = ~on_any_yw;
     const uint32_t unknown_eq_yw = unknown_count_yw.template eq_target<UnknownTarget>();
     const uint32_t column_yw = on_zero_yw & unknown_eq_yw;
     result.state.y |= column_yw;

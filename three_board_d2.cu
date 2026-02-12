@@ -439,9 +439,9 @@ _DI_ BitBoard<W> ThreeBoardD2<N, W>::vulnerable() const {
 
     // Full-board column unknown=4 corresponds to stored unknown=2.
     // One additional OFF then forces the remaining cell ON in that column.
-    const BinaryCountSaturating<32> col_on = BinaryCountSaturating<32>::vertical(known_on.state);
     const BinaryCountSaturating<32> col_unknown = BinaryCountSaturating<32>::vertical(unknown.state);
-    const board_row_t<32> vulnerable_cols = col_on.template eq_target<0>() & col_unknown.template eq_target<2>();
+    const uint32_t col_on_any = __reduce_or_sync(0xffffffff, known_on.state);
+    const board_row_t<32> vulnerable_cols = ~col_on_any & col_unknown.template eq_target<2>();
     result.state |= unknown.state & vulnerable_cols;
   } else {
     const unsigned row_on_even = popcount<32>(known_on.state.x) + popcount<32>(known_on.state.y);
@@ -458,12 +458,12 @@ _DI_ BitBoard<W> ThreeBoardD2<N, W>::vulnerable() const {
       result.state.w = ~0u;
     }
 
-    const BinaryCountSaturating<32> col_on_even_low = BinaryCountSaturating<32>::vertical(known_on.state.x);
-    const BinaryCountSaturating<32> col_on_odd_low = BinaryCountSaturating<32>::vertical(known_on.state.z);
     const BinaryCountSaturating<32> col_unknown_even_low = BinaryCountSaturating<32>::vertical(unknown.state.x);
     const BinaryCountSaturating<32> col_unknown_odd_low = BinaryCountSaturating<32>::vertical(unknown.state.z);
 
-    const board_row_t<32> col_on_low_eq_0 = col_on_even_low.template eq_target<0>() & col_on_odd_low.template eq_target<0>();
+    const uint32_t col_on_even_low_any = __reduce_or_sync(0xffffffff, known_on.state.x);
+    const uint32_t col_on_odd_low_any = __reduce_or_sync(0xffffffff, known_on.state.z);
+    const board_row_t<32> col_on_low_eq_0 = ~col_on_even_low_any & ~col_on_odd_low_any;
     const board_row_t<32> col_unknown_low_eq_2 =
         (col_unknown_even_low.template eq_target<2>() & col_unknown_odd_low.template eq_target<0>()) |
         (col_unknown_even_low.template eq_target<1>() & col_unknown_odd_low.template eq_target<1>()) |
@@ -473,12 +473,12 @@ _DI_ BitBoard<W> ThreeBoardD2<N, W>::vulnerable() const {
     result.state.x |= unknown.state.x & vulnerable_cols_low;
     result.state.z |= unknown.state.z & vulnerable_cols_low;
 
-    const BinaryCountSaturating<32> col_on_even_high = BinaryCountSaturating<32>::vertical(known_on.state.y);
-    const BinaryCountSaturating<32> col_on_odd_high = BinaryCountSaturating<32>::vertical(known_on.state.w);
     const BinaryCountSaturating<32> col_unknown_even_high = BinaryCountSaturating<32>::vertical(unknown.state.y);
     const BinaryCountSaturating<32> col_unknown_odd_high = BinaryCountSaturating<32>::vertical(unknown.state.w);
 
-    const board_row_t<32> col_on_high_eq_0 = col_on_even_high.template eq_target<0>() & col_on_odd_high.template eq_target<0>();
+    const uint32_t col_on_even_high_any = __reduce_or_sync(0xffffffff, known_on.state.y);
+    const uint32_t col_on_odd_high_any = __reduce_or_sync(0xffffffff, known_on.state.w);
+    const board_row_t<32> col_on_high_eq_0 = ~col_on_even_high_any & ~col_on_odd_high_any;
     const board_row_t<32> col_unknown_high_eq_2 =
         (col_unknown_even_high.template eq_target<2>() & col_unknown_odd_high.template eq_target<0>()) |
         (col_unknown_even_high.template eq_target<1>() & col_unknown_odd_high.template eq_target<1>()) |

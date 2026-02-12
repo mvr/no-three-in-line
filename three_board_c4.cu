@@ -556,15 +556,13 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::semivulnerable_like() const {
 
   BitBoard<W> unknown = (~known_on & ~known_off) & bounds();
   if constexpr (W == 32) {
-    const BinaryCountSaturating<32> row_on_counter = BinaryCountSaturating<32>::horizontal(known_on.state);
-    const BinaryCountSaturating<32> col_on_counter = BinaryCountSaturating<32>::vertical(known_on.state);
-    const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
-
     const BinaryCountSaturating3<32> row_unknown_counter = BinaryCountSaturating3<32>::horizontal(unknown.state);
     const BinaryCountSaturating3<32> col_unknown_counter = BinaryCountSaturating3<32>::vertical(unknown.state);
     const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
 
-    const board_row_t<32> total_on_eq_0 = total_on_counter.template eq_target<0>();
+    const uint32_t col_on_any = __reduce_or_sync(0xffffffff, known_on.state);
+    const board_row_t<32> row_on_eq_0 = (known_on.state == 0) ? ~0u : 0u;
+    const board_row_t<32> total_on_eq_0 = row_on_eq_0 & ~col_on_any;
     const board_row_t<32> total_unknown_eq = total_unknown_counter.template eq_target<UnknownTarget>();
 
     const board_row_t<32> semivuln_rows = total_on_eq_0 & total_unknown_eq;
@@ -591,19 +589,21 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::semivulnerable_like() const {
     const board_row_t<64> unknown_odd =
         ((static_cast<board_row_t<64>>(unknown.state.w) << 32) | unknown.state.z) & row_mask;
 
-    const BinaryCountSaturating<64> row_on_counter =
-        BinaryCountSaturating<64>::horizontal_interleave(known_on_even, known_on_odd);
-    const BinaryCountSaturating<64> col_on_counter =
-        BinaryCountSaturating<64>::vertical(known_on_even) + BinaryCountSaturating<64>::vertical(known_on_odd);
-    const BinaryCountSaturating<64> total_on_counter = row_on_counter + col_on_counter;
-
     const BinaryCountSaturating3<64> row_unknown_counter =
         BinaryCountSaturating3<64>::horizontal_interleave(unknown_even, unknown_odd);
     const BinaryCountSaturating3<64> col_unknown_counter =
         BinaryCountSaturating3<64>::vertical(unknown_even) + BinaryCountSaturating3<64>::vertical(unknown_odd);
     const BinaryCountSaturating3<64> total_unknown_counter = row_unknown_counter + col_unknown_counter;
 
-    const board_row_t<64> total_on_eq_0 = total_on_counter.template eq_target<0>();
+    const board_row_t<64> row_on_eq_0 =
+        ((((known_on.state.x | known_on.state.y) == 0) ? lane_even_bit : board_row_t<64>(0)) |
+         (((known_on.state.z | known_on.state.w) == 0) ? lane_odd_bit : board_row_t<64>(0))) &
+        row_mask;
+    const uint32_t col_on_any_lo = __reduce_or_sync(0xffffffff, known_on.state.x | known_on.state.z);
+    const uint32_t col_on_any_hi = __reduce_or_sync(0xffffffff, known_on.state.y | known_on.state.w);
+    const board_row_t<64> col_on_eq_0 =
+        (((static_cast<board_row_t<64>>(~col_on_any_hi) << 32) | ~col_on_any_lo) & row_mask);
+    const board_row_t<64> total_on_eq_0 = row_on_eq_0 & col_on_eq_0;
     const board_row_t<64> total_unknown_eq = total_unknown_counter.template eq_target<UnknownTarget>();
     const board_row_t<64> mask = total_on_eq_0 & total_unknown_eq;
 
