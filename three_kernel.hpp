@@ -17,8 +17,6 @@ struct Problem {
 enum class StatId : unsigned {
   NodesVisited,
   VulnerableBranches,
-  SemiVulnerableBranches,
-  QuasiVulnerableBranches,
   SymmetryForced,
   CellBranches,
   RowBranches,

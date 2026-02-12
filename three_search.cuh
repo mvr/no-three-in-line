@@ -46,13 +46,11 @@ inline void maybe_print_stats(unsigned stack_size,
   SearchStats snapshot;
   cudaMemcpyFromSymbol(&snapshot, g_search_stats, sizeof(SearchStats));
   std::cerr << "[stats] nodes=" << snapshot.counters[static_cast<unsigned>(StatId::NodesVisited)]
-            << " sym_force=" << snapshot.counters[static_cast<unsigned>(StatId::SymmetryForced)]
-            << " vuln_branches=" << snapshot.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
-            << " semivuln_branches=" << snapshot.counters[static_cast<unsigned>(StatId::SemiVulnerableBranches)]
-            << " quasivuln_branches=" << snapshot.counters[static_cast<unsigned>(StatId::QuasiVulnerableBranches)]
-            << " cell_branches=" << snapshot.counters[static_cast<unsigned>(StatId::CellBranches)]
-            << " row_branches=" << snapshot.counters[static_cast<unsigned>(StatId::RowBranches)]
             << " canonical_skips=" << snapshot.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
+            << " sym_force=" << snapshot.counters[static_cast<unsigned>(StatId::SymmetryForced)]
+            << " vulnerable_branch=" << snapshot.counters[static_cast<unsigned>(StatId::VulnerableBranches)]
+            << " cell_branch=" << snapshot.counters[static_cast<unsigned>(StatId::CellBranches)]
+            << " row_branch=" << snapshot.counters[static_cast<unsigned>(StatId::RowBranches)]
             << " inconsistent=" << snapshot.counters[static_cast<unsigned>(StatId::InconsistentNodes)]
             << " stack_size=" << stack_size
             << " batch_size=" << batch_size
@@ -293,26 +291,10 @@ __global__ void work_kernel(typename Traits::Stack *__restrict__ stack,
     return;
   }
 
-  auto vulnerable = board.vulnerable();
-  if (!vulnerable.empty()) {
-    auto cell = Traits::pick_preferred_branch_cell(vulnerable);
+  auto preferred_cells = board.preferred_branch_cells();
+  if (!preferred_cells.empty()) {
+    auto cell = Traits::pick_preferred_branch_cell(preferred_cells);
     stats_record(StatId::VulnerableBranches);
-    resolve_outcome_cell<Traits>(board, cell, stack);
-    return;
-  }
-
-  auto semivulnerable = board.semivulnerable();
-  if (!semivulnerable.empty()) {
-    auto cell = Traits::pick_preferred_branch_cell(semivulnerable);
-    stats_record(StatId::SemiVulnerableBranches);
-    resolve_outcome_cell<Traits>(board, cell, stack);
-    return;
-  }
-
-  auto quasivulnerable = board.quasivulnerable();
-  if (!quasivulnerable.empty()) {
-    auto cell = Traits::pick_preferred_branch_cell(quasivulnerable);
-    stats_record(StatId::QuasiVulnerableBranches);
     resolve_outcome_cell<Traits>(board, cell, stack);
     return;
   }

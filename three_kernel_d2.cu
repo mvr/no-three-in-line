@@ -93,7 +93,6 @@ struct D2Traits {
   static constexpr int kCellBranchWColOn = 4;
   static constexpr int kCellBranchWColOff = 8;
   static constexpr int kCellBranchWEndpointOn = 0;
-  static constexpr bool kEnableSemiQuasi = true;
 
   using Board = ThreeBoardD2<N, W>;
   using Problem = Problem<W>;

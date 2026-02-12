@@ -48,10 +48,8 @@ struct ThreeBoardD2 {
 
   _DI_ ThreeBoardD2<N, W> force_orthogonal() const;
   _DI_ BitBoard<W> vulnerable() const;
-  _DI_ BitBoard<W> semivulnerable() const;
-  _DI_ BitBoard<W> quasivulnerable() const;
-  template <unsigned UnknownTarget>
-  _DI_ BitBoard<W> semivulnerable_like() const;
+  _DI_ cuda::std::pair<BitBoard<W>, BitBoard<W>> semi_quasi_vulnerable() const;
+  _DI_ BitBoard<W> preferred_branch_cells() const;
   _DI_ void apply_bounds();
 
   static _DI_ int mirror_y(int y);
@@ -496,43 +494,67 @@ _DI_ BitBoard<W> ThreeBoardD2<N, W>::vulnerable() const {
 }
 
 template <unsigned N, unsigned W>
-template <unsigned UnknownTarget>
-_DI_ BitBoard<W> ThreeBoardD2<N, W>::semivulnerable_like() const {
-  static_assert(UnknownTarget < 8, "semivulnerable_like expects a target < 8");
-  BitBoard<W> result;
+_DI_ cuda::std::pair<BitBoard<W>, BitBoard<W>> ThreeBoardD2<N, W>::semi_quasi_vulnerable() const {
+  BitBoard<W> semivulnerable{};
+  BitBoard<W> quasivulnerable{};
   const BitBoard<W> unknown = (~known_on & ~known_off) & bounds();
 
   if constexpr (W == 32) {
     const unsigned row_unknown = popcount<32>(unknown.state);
-    if (known_on.state == 0 && row_unknown == UnknownTarget) {
-      result.state = ~0u;
+    if (known_on.state == 0) {
+      if (row_unknown == 4) {
+        semivulnerable.state = ~0u;
+      }
+      if (row_unknown == 5) {
+        quasivulnerable.state = ~0u;
+      }
     }
   } else {
     const unsigned row_unknown_even = popcount<32>(unknown.state.x) + popcount<32>(unknown.state.y);
-    if ((known_on.state.x | known_on.state.y) == 0 && row_unknown_even == UnknownTarget) {
-      result.state.x = ~0u;
-      result.state.y = ~0u;
+    if ((known_on.state.x | known_on.state.y) == 0) {
+      if (row_unknown_even == 4) {
+        semivulnerable.state.x = ~0u;
+        semivulnerable.state.y = ~0u;
+      }
+      if (row_unknown_even == 5) {
+        quasivulnerable.state.x = ~0u;
+        quasivulnerable.state.y = ~0u;
+      }
     }
 
     const unsigned row_unknown_odd = popcount<32>(unknown.state.z) + popcount<32>(unknown.state.w);
-    if ((known_on.state.z | known_on.state.w) == 0 && row_unknown_odd == UnknownTarget) {
-      result.state.z = ~0u;
-      result.state.w = ~0u;
+    if ((known_on.state.z | known_on.state.w) == 0) {
+      if (row_unknown_odd == 4) {
+        semivulnerable.state.z = ~0u;
+        semivulnerable.state.w = ~0u;
+      }
+      if (row_unknown_odd == 5) {
+        quasivulnerable.state.z = ~0u;
+        quasivulnerable.state.w = ~0u;
+      }
     }
   }
 
-  result &= unknown & bounds();
-  return result;
+  semivulnerable &= unknown;
+  quasivulnerable &= unknown;
+  return {semivulnerable, quasivulnerable};
 }
 
 template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoardD2<N, W>::semivulnerable() const {
-  return semivulnerable_like<4>();
-}
+_DI_ BitBoard<W> ThreeBoardD2<N, W>::preferred_branch_cells() const {
+  BitBoard<W> cells = vulnerable();
+  if (!cells.empty()) {
+    return cells;
+  }
 
-template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoardD2<N, W>::quasivulnerable() const {
-  return semivulnerable_like<5>();
+  auto [semi, quasi] = semi_quasi_vulnerable();
+  if (!semi.empty()) {
+    return semi;
+  }
+  if (!quasi.empty()) {
+    return quasi;
+  }
+  return BitBoard<W>{};
 }
 
 template <unsigned N, unsigned W>

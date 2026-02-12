@@ -54,10 +54,8 @@ struct ThreeBoard {
   _DI_ ThreeBoard<N, W> force_orthogonal() const { return force_orthogonal_horiz().force_orthogonal_vert(); }
 
   _DI_ BitBoard<W> vulnerable() const;
-  _DI_ BitBoard<W> semivulnerable() const;
-  _DI_ BitBoard<W> quasivulnerable() const;
-  template <unsigned UnknownTarget>
-  _DI_ BitBoard<W> semivulnerable_like() const;
+  _DI_ cuda::std::pair<BitBoard<W>, BitBoard<W>> semi_quasi_vulnerable() const;
+  _DI_ BitBoard<W> preferred_branch_cells() const;
 
   _DI_ BitBoard<W> eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q, cuda::std::pair<unsigned, unsigned> delta);
   _DI_ BitBoard<W> eliminate_line(cuda::std::pair<unsigned, unsigned> p, cuda::std::pair<unsigned, unsigned> q);
@@ -684,73 +682,100 @@ _DI_ BitBoard<W> ThreeBoard<N, W>::vulnerable() const {
 }
 
 template <unsigned N, unsigned W>
-template <unsigned UnknownTarget>
-_DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable_like() const {
-  static_assert(UnknownTarget < 8, "semivulnerable_like expects a target < 8");
-  BitBoard<W> result;
+_DI_ cuda::std::pair<BitBoard<W>, BitBoard<W>> ThreeBoard<N, W>::semi_quasi_vulnerable() const {
+  BitBoard<W> semivulnerable{};
+  BitBoard<W> quasivulnerable{};
   const BitBoard<W> bounds = ThreeBoard<N, W>::bounds();
+  const BitBoard<W> unknown = (~known_on & ~known_off) & bounds;
 
   if constexpr (W == 32) {
-    unsigned off_pop = popcount<32>(known_off.state);
-    unsigned unknown_pop = N - off_pop;
-    if (known_on.state == 0 && unknown_pop == UnknownTarget) {
-      result.state = ~(board_row_t<W>)0;
+    const unsigned off_pop = popcount<32>(known_off.state);
+    const unsigned unknown_pop = N - off_pop;
+    if (known_on.state == 0) {
+      if (unknown_pop == 4) {
+        semivulnerable.state = ~(board_row_t<W>)0;
+      }
+      if (unknown_pop == 5) {
+        quasivulnerable.state = ~(board_row_t<W>)0;
+      }
     }
 
-    BitBoard<32> unknown = ~known_on & ~known_off & bounds;
     const BinaryCountSaturating3<32> unknown_count = BinaryCountSaturating3<32>::vertical(unknown.state);
     const uint32_t on_any = __reduce_or_sync(0xffffffff, known_on.state);
     const uint32_t on_zero = ~on_any;
-    const uint32_t unknown_eq = unknown_count.template eq_target<UnknownTarget>();
-    result.state |= on_zero & unknown_eq;
+    semivulnerable.state |= on_zero & unknown_count.template eq_target<4>();
+    quasivulnerable.state |= on_zero & unknown_count.template eq_target<5>();
   } else {
-    unsigned off_pop_xy = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
-    unsigned unknown_pop_xy = N - off_pop_xy;
-    if ((known_on.state.x | known_on.state.y) == 0 && unknown_pop_xy == UnknownTarget) {
-      result.state.x = ~(board_row_t<W>)0;
-      result.state.y = ~(board_row_t<W>)0;
+    const unsigned off_pop_xy = popcount<32>(known_off.state.x) + popcount<32>(known_off.state.y);
+    const unsigned unknown_pop_xy = N - off_pop_xy;
+    if ((known_on.state.x | known_on.state.y) == 0) {
+      if (unknown_pop_xy == 4) {
+        semivulnerable.state.x = ~(board_row_t<W>)0;
+        semivulnerable.state.y = ~(board_row_t<W>)0;
+      }
+      if (unknown_pop_xy == 5) {
+        quasivulnerable.state.x = ~(board_row_t<W>)0;
+        quasivulnerable.state.y = ~(board_row_t<W>)0;
+      }
     }
 
-    unsigned off_pop_zw = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
-    unsigned unknown_pop_zw = N - off_pop_zw;
-    if ((known_on.state.z | known_on.state.w) == 0 && unknown_pop_zw == UnknownTarget) {
-      result.state.z = ~(board_row_t<W>)0;
-      result.state.w = ~(board_row_t<W>)0;
+    const unsigned off_pop_zw = popcount<32>(known_off.state.z) + popcount<32>(known_off.state.w);
+    const unsigned unknown_pop_zw = N - off_pop_zw;
+    if ((known_on.state.z | known_on.state.w) == 0) {
+      if (unknown_pop_zw == 4) {
+        semivulnerable.state.z = ~(board_row_t<W>)0;
+        semivulnerable.state.w = ~(board_row_t<W>)0;
+      }
+      if (unknown_pop_zw == 5) {
+        quasivulnerable.state.z = ~(board_row_t<W>)0;
+        quasivulnerable.state.w = ~(board_row_t<W>)0;
+      }
     }
-
-    BitBoard<64> unknown = ~known_on & ~known_off & bounds;
 
     const BinaryCountSaturating3<32> unknown_count_xz =
-        BinaryCountSaturating3<32>::vertical(unknown.state.x) + BinaryCountSaturating3<32>::vertical(unknown.state.z);
+        BinaryCountSaturating3<32>::vertical(unknown.state.x) +
+        BinaryCountSaturating3<32>::vertical(unknown.state.z);
     const uint32_t on_any_xz = __reduce_or_sync(0xffffffff, known_on.state.x | known_on.state.z);
     const uint32_t on_zero_xz = ~on_any_xz;
-    const uint32_t unknown_eq_xz = unknown_count_xz.template eq_target<UnknownTarget>();
-    const uint32_t column_xz = on_zero_xz & unknown_eq_xz;
-    result.state.x |= column_xz;
-    result.state.z |= column_xz;
+    const uint32_t unknown_eq4_xz = unknown_count_xz.template eq_target<4>();
+    const uint32_t unknown_eq5_xz = unknown_count_xz.template eq_target<5>();
+    semivulnerable.state.x |= on_zero_xz & unknown_eq4_xz;
+    semivulnerable.state.z |= on_zero_xz & unknown_eq4_xz;
+    quasivulnerable.state.x |= on_zero_xz & unknown_eq5_xz;
+    quasivulnerable.state.z |= on_zero_xz & unknown_eq5_xz;
 
     const BinaryCountSaturating3<32> unknown_count_yw =
-        BinaryCountSaturating3<32>::vertical(unknown.state.y) + BinaryCountSaturating3<32>::vertical(unknown.state.w);
+        BinaryCountSaturating3<32>::vertical(unknown.state.y) +
+        BinaryCountSaturating3<32>::vertical(unknown.state.w);
     const uint32_t on_any_yw = __reduce_or_sync(0xffffffff, known_on.state.y | known_on.state.w);
     const uint32_t on_zero_yw = ~on_any_yw;
-    const uint32_t unknown_eq_yw = unknown_count_yw.template eq_target<UnknownTarget>();
-    const uint32_t column_yw = on_zero_yw & unknown_eq_yw;
-    result.state.y |= column_yw;
-    result.state.w |= column_yw;
+    const uint32_t unknown_eq4_yw = unknown_count_yw.template eq_target<4>();
+    const uint32_t unknown_eq5_yw = unknown_count_yw.template eq_target<5>();
+    semivulnerable.state.y |= on_zero_yw & unknown_eq4_yw;
+    semivulnerable.state.w |= on_zero_yw & unknown_eq4_yw;
+    quasivulnerable.state.y |= on_zero_yw & unknown_eq5_yw;
+    quasivulnerable.state.w |= on_zero_yw & unknown_eq5_yw;
   }
 
-  result &= ~known_on & ~known_off & bounds;
-  return result;
+  semivulnerable &= unknown;
+  quasivulnerable &= unknown;
+  return {semivulnerable, quasivulnerable};
 }
 
 template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoard<N, W>::semivulnerable() const {
-  return semivulnerable_like<4>();
-}
-
-template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoard<N, W>::quasivulnerable() const {
-  return semivulnerable_like<5>();
+_DI_ BitBoard<W> ThreeBoard<N, W>::preferred_branch_cells() const {
+  BitBoard<W> cells = vulnerable();
+  if (!cells.empty()) {
+    return cells;
+  }
+  auto [semi, quasi] = semi_quasi_vulnerable();
+  if (!semi.empty()) {
+    return semi;
+  }
+  if (!quasi.empty()) {
+    return quasi;
+  }
+  return BitBoard<W>{};
 }
 
 template <unsigned N, unsigned W>

@@ -52,6 +52,7 @@ struct ThreeBoardC4 {
   _DI_ BitBoard<W> vulnerable() const;
   _DI_ BitBoard<W> semivulnerable() const;
   _DI_ BitBoard<W> quasivulnerable() const;
+  _DI_ BitBoard<W> preferred_branch_cells() const;
   template <unsigned UnknownTarget>
   _DI_ BitBoard<W> semivulnerable_like() const;
   _DI_ void apply_bounds();
@@ -638,6 +639,23 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::semivulnerable() const {
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoardC4<N, W>::quasivulnerable() const {
   return semivulnerable_like<5>();
+}
+
+template <unsigned N, unsigned W>
+_DI_ BitBoard<W> ThreeBoardC4<N, W>::preferred_branch_cells() const {
+  BitBoard<W> cells = vulnerable();
+  if (!cells.empty()) {
+    return cells;
+  }
+  cells = semivulnerable();
+  if (!cells.empty()) {
+    return cells;
+  }
+  cells = quasivulnerable();
+  if (!cells.empty()) {
+    return cells;
+  }
+  return BitBoard<W>{};
 }
 
 // --- Orbit helpers ---------------------------------------------------------
