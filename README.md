@@ -25,7 +25,7 @@ For more details, see the following blog posts:
 
 ## Results
 
-Solutions are given under `results/` in
+Solutions are available under `results/` in
 [RLE](https://conwaylife.com/wiki/Run_Length_Encoded) format, so they
 can be pasted into [Golly](https://golly.sourceforge.io/), for
 example. So far a few new values have been calculated over what was
@@ -33,11 +33,18 @@ previously known:
 
 * Any symmetry:
   * $19 \times 19$: 32577
+* 2-fold orthogonal symmetry:
+  * $32 \times 32$: 0
 * 4-fold rotational symmetry:
   * $44 \times 44$: 1016
   * $46 \times 46$: 1366
-  * $48 \times 48$: 2124
-  * $50 \times 50$: 3381
+  * $48 \times 48$: 2124*
+  * $50 \times 50$: 3381*
+  * $52 \times 52$: 5062*
+
+*Thanks to [Thomas
+Prellberg](https://webspace.maths.qmul.ac.uk/t.prellberg/) and [Queen
+Mary's Apocrita HPC facility](https://docs.hpc.qmul.ac.uk/)!
 
 ## Compiling
 
