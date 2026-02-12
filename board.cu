@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "common.hpp"
+#include "lookup_tables.cuh"
 
 template<unsigned W>
 struct BitBoard {

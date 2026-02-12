@@ -1,6 +1,8 @@
 #pragma once
 
 #include "common.hpp"
+#include "binary_count.cuh"
+#include "lookup_tables.cuh"
 #include "board.cu"
 #include "three_board.cu"
 
