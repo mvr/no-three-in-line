@@ -49,7 +49,3 @@ int solve_with_device_stack(const board_array_t<W> *seed_on,
 
 template <unsigned N, unsigned W>
 int solve_with_device_stack(unsigned frontier_min_on);
-
-void init_lookup_tables_host();
-void init_relevant_endpoint_host(unsigned n);
-void init_relevant_endpoint_host_64(unsigned n);
