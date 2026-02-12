@@ -840,30 +840,13 @@ template <unsigned N, unsigned W>
 _DI_ void
 ThreeBoard<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, unsigned> p) {
   BitBoard<W> qs = known_on & ThreeBoard<N, W>::relevant_endpoint(p);
-  if constexpr (W == 32) {
-    const unsigned lane = threadIdx.x & 31;
-    const unsigned p_idx = p.second * N + p.first;
-    const uint32_t *__restrict__ table = g_line_table_32;
-    const uint32_t *__restrict__ base = table + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
-
-    cuda::std::pair<int, int> q;
-    while (qs.pop_on_if_any(q)) {
-      const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
-      const uint32_t row = __ldg(base + q_idx * LINE_ROWS + lane);
-      known_off |= BitBoard<32>(row);
-      if (__any_sync(0xffffffff, row & known_on.state)) {
-        return;
-      }
-    }
-  } else {
-    cuda::std::pair<int, int> q;
-    while (qs.pop_on_if_any(q)) {
-      known_off |= eliminate_line(p, q);
-      if (!consistent())
-        return;
-    }
-    known_off &= bounds();
+  cuda::std::pair<int, int> q;
+  while (qs.pop_on_if_any(q)) {
+    known_off |= eliminate_line(p, q);
+    if (!consistent())
+      return;
   }
+  known_off &= bounds();
 }
 
 template <unsigned N, unsigned W>
@@ -872,29 +855,11 @@ ThreeBoard<N, W>::eliminate_all_lines(BitBoard<W> ps) {
   cuda::std::pair<int, int> p;
   while (ps.pop_on_if_any(p)) {
     BitBoard<W> qs = known_on & ~ps & ThreeBoard<N, W>::relevant_endpoint(p);
-
-    if constexpr (W == 32) {
-      const unsigned lane = threadIdx.x & 31;
-      const unsigned p_idx = static_cast<unsigned>(p.second) * N + static_cast<unsigned>(p.first);
-      const uint32_t *__restrict__ table = g_line_table_32;
-      const uint32_t *__restrict__ base = table + (static_cast<size_t>(p_idx) * N * N) * LINE_ROWS;
-
-      cuda::std::pair<int, int> q;
-      while (qs.pop_on_if_any(q)) {
-        const unsigned q_idx = static_cast<unsigned>(q.second) * N + static_cast<unsigned>(q.first);
-        const uint32_t row = __ldg(base + q_idx * LINE_ROWS + lane);
-        known_off |= BitBoard<32>(row);
-        if (__any_sync(0xffffffff, row & known_on.state)) {
-          return;
-        }
-      }
-    } else {
-      cuda::std::pair<int, int> q;
-      while (qs.pop_on_if_any(q)) {
-        known_off |= eliminate_line(p, q);
-        if (!consistent())
-          return;
-      }
+    cuda::std::pair<int, int> q;
+    while (qs.pop_on_if_any(q)) {
+      known_off |= eliminate_line(p, q);
+      if (!consistent())
+        return;
     }
     known_off &= bounds();
   }
