@@ -796,14 +796,18 @@ _DI_ BitBoard<W> BitBoard<W>::positions_before(int x, int y) {
     uint32_t row_mask_high = (x < 32) ? 0 : ((1u << (x - 32)) - 1);
 
     int my_row = threadIdx.x & 31;
-    bool before_row = (my_row * 2 + 1 < y);
-    bool at_row_even = (my_row * 2 == y);
-    bool at_row_odd = (my_row * 2 + 1 == y);
+    const int row_even = my_row * 2;
+    const int row_odd = row_even + 1;
 
-    result.state.x = before_row ? full_mask : (at_row_even ? row_mask_low : 0);
-    result.state.y = before_row ? full_mask : (at_row_even ? row_mask_high : 0);
-    result.state.z = (before_row || at_row_even) ? full_mask : (at_row_odd ? row_mask_low : 0);
-    result.state.w = (before_row || at_row_even) ? full_mask : (at_row_odd ? row_mask_high : 0);
+    bool even_before = row_even < y;
+    bool odd_before = row_odd < y;
+    bool at_row_even = row_even == y;
+    bool at_row_odd = row_odd == y;
+
+    result.state.x = even_before ? full_mask : (at_row_even ? row_mask_low : 0);
+    result.state.y = even_before ? full_mask : (at_row_even ? row_mask_high : 0);
+    result.state.z = odd_before ? full_mask : (at_row_odd ? row_mask_low : 0);
+    result.state.w = odd_before ? full_mask : (at_row_odd ? row_mask_high : 0);
   }
 
   return result;
