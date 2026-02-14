@@ -516,7 +516,7 @@ _DI_ void BitBoard<W>::on_cells(cuda::std::pair<uint8_t, uint8_t> cells[]) const
 
 template <unsigned W>
 template <unsigned N>
-_DI_ cuda::std::pair<int, int> BitBoard<W>::first_center_on<N>() const {
+_DI_ cuda::std::pair<int, int> BitBoard<W>::first_center_on() const {
   if constexpr (W == 32) {
     // Put the center at 0, 0, then shift at the end
 
@@ -1120,7 +1120,7 @@ _DI_ bool BitBoard<W>::is_canonical() const {
 
 template <unsigned W>
 template <unsigned N>
-_DI_ bool BitBoard<W>::is_canonical_subsquare<N>() const {
+_DI_ bool BitBoard<W>::is_canonical_subsquare() const {
   BitBoard<W> flip_v = flip_vertical().rotate_torus(0, N);
   if (flip_v < *this) return false;
 
