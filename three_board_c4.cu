@@ -406,12 +406,11 @@ _DI_ ThreeBoardC4<N, W> ThreeBoardC4<N, W>::force_orthogonal() const {
       result.known_off.state.w |= row_mask_hi;
     }
 
-    const board_row_t<64> known_off_even =
-        ((static_cast<board_row_t<64>>(known_off.state.y) << 32) | known_off.state.x) & row_mask;
-    const board_row_t<64> known_off_odd =
-        ((static_cast<board_row_t<64>>(known_off.state.w) << 32) | known_off.state.z) & row_mask;
-    const board_row_t<64> not_known_off_even = (~known_off_even) & row_mask;
-    const board_row_t<64> not_known_off_odd = (~known_off_odd) & row_mask;
+    const BitBoard<W> not_known_off = (~known_off) & bounds();
+    const board_row_t<64> not_known_off_even =
+        ((static_cast<board_row_t<64>>(not_known_off.state.y) << 32) | not_known_off.state.x);
+    const board_row_t<64> not_known_off_odd =
+        ((static_cast<board_row_t<64>>(not_known_off.state.w) << 32) | not_known_off.state.z);
 
     const BinaryCountSaturating<64> row_not_off_counter =
         BinaryCountSaturating<64>::horizontal_interleave(not_known_off_even, not_known_off_odd);
@@ -427,10 +426,10 @@ _DI_ ThreeBoardC4<N, W> ThreeBoardC4<N, W>::force_orthogonal() const {
     const uint32_t not_lt2_lo = static_cast<uint32_t>(total_not_off_lt_2);
     const uint32_t not_lt2_hi = static_cast<uint32_t>(total_not_off_lt_2 >> 32);
 
-    result.known_on.state.x |= (~known_off.state.x) & not_eq2_lo;
-    result.known_on.state.y |= (~known_off.state.y) & not_eq2_hi;
-    result.known_on.state.z |= (~known_off.state.z) & not_eq2_lo;
-    result.known_on.state.w |= (~known_off.state.w) & not_eq2_hi;
+    result.known_on.state.x |= not_known_off.state.x & not_eq2_lo;
+    result.known_on.state.y |= not_known_off.state.y & not_eq2_hi;
+    result.known_on.state.z |= not_known_off.state.z & not_eq2_lo;
+    result.known_on.state.w |= not_known_off.state.w & not_eq2_hi;
 
     result.known_on.state.x |= not_lt2_lo;
     result.known_on.state.y |= not_lt2_hi;
@@ -442,12 +441,12 @@ _DI_ ThreeBoardC4<N, W> ThreeBoardC4<N, W>::force_orthogonal() const {
     result.known_off.state.w |= not_lt2_hi;
 
     if (total_not_off_eq_2 & lane_even_bit) {
-      result.known_on.state.x |= (~known_off.state.x) & row_mask_lo;
-      result.known_on.state.y |= (~known_off.state.y) & row_mask_hi;
+      result.known_on.state.x |= not_known_off.state.x;
+      result.known_on.state.y |= not_known_off.state.y;
     }
     if (total_not_off_eq_2 & lane_odd_bit) {
-      result.known_on.state.z |= (~known_off.state.z) & row_mask_lo;
-      result.known_on.state.w |= (~known_off.state.w) & row_mask_hi;
+      result.known_on.state.z |= not_known_off.state.z;
+      result.known_on.state.w |= not_known_off.state.w;
     }
     if (total_not_off_lt_2 & lane_even_bit) {
       result.known_on.state.x |= row_mask_lo;
