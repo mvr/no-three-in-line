@@ -178,25 +178,14 @@ struct BinaryCountSaturating3 {
     const board_row_t<W> sum0 = bit0 ^ other.bit0;
     const board_row_t<W> carry0 = bit0 & other.bit0;
 
-    if constexpr (W == 32) {
-      const board_row_t<W> sum1 = xor3(bit1, other.bit1, carry0);
-      const board_row_t<W> carry1 = maj3(bit1, other.bit1, carry0);
+    const board_row_t<W> sum1 = xor3(bit1, other.bit1, carry0);
+    const board_row_t<W> carry1 = maj3(bit1, other.bit1, carry0);
 
-      const board_row_t<W> sum2 = xor3(bit2, other.bit2, carry1);
-      const board_row_t<W> carry2 = maj3(bit2, other.bit2, carry1);
+    const board_row_t<W> sum2 = xor3(bit2, other.bit2, carry1);
+    const board_row_t<W> carry2 = maj3(bit2, other.bit2, carry1);
 
-      const board_row_t<W> overflow = carry2;
-      return {sum0 | overflow, sum1 | overflow, sum2 | overflow};
-    } else {
-      const board_row_t<W> sum1 = bit1 ^ other.bit1 ^ carry0;
-      const board_row_t<W> carry1 = (bit1 & other.bit1) | (carry0 & (bit1 ^ other.bit1));
-
-      const board_row_t<W> sum2 = bit2 ^ other.bit2 ^ carry1;
-      const board_row_t<W> carry2 = (bit2 & other.bit2) | (carry1 & (bit2 ^ other.bit2));
-
-      const board_row_t<W> overflow = carry2;
-      return {sum0 | overflow, sum1 | overflow, sum2 | overflow};
-    }
+    const board_row_t<W> overflow = carry2;
+    return {sum0 | overflow, sum1 | overflow, sum2 | overflow};
   }
 
   _DI_ void operator+=(const BinaryCountSaturating3 other) { *this = *this + other; }

@@ -174,9 +174,24 @@ _HD_ uint32_t lop3(uint32_t x, uint32_t y, uint32_t z) {
     return w;
 }
 
+template<uint8_t Op>
+_HD_ uint64_t lop3(uint64_t x, uint64_t y, uint64_t z) {
+  const uint32_t lo = lop3<Op>(static_cast<uint32_t>(x),
+                               static_cast<uint32_t>(y),
+                               static_cast<uint32_t>(z));
+  const uint32_t hi = lop3<Op>(static_cast<uint32_t>(x >> 32),
+                               static_cast<uint32_t>(y >> 32),
+                               static_cast<uint32_t>(z >> 32));
+  return (static_cast<uint64_t>(hi) << 32) | lo;
+}
+
 _HD_ uint32_t maj3(uint32_t x, uint32_t y, uint32_t z) { return lop3<0xE8>(x, y, z); }
 _HD_ uint32_t xor3(uint32_t x, uint32_t y, uint32_t z) { return lop3<0x96>(x, y, z); }
 _HD_ uint32_t mux3(uint32_t x, uint32_t y, uint32_t z) { return lop3<0xCA>(x, y, z); }
+
+_HD_ uint64_t maj3(uint64_t x, uint64_t y, uint64_t z) { return lop3<0xE8>(x, y, z); }
+_HD_ uint64_t xor3(uint64_t x, uint64_t y, uint64_t z) { return lop3<0x96>(x, y, z); }
+_HD_ uint64_t mux3(uint64_t x, uint64_t y, uint64_t z) { return lop3<0xCA>(x, y, z); }
 
 #ifdef __CUDACC__
 #endif
