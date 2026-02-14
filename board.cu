@@ -107,6 +107,8 @@ struct BitBoard {
   _DI_ void erase_row(int y);
 
   _DI_ cuda::std::pair<int, int> first_on() const;
+  _DI_ board_row_t<W> first_row() const;
+  _DI_ board_row_t<W> occupied_columns() const;
   _DI_ cuda::std::pair<int, int> some_on() const;
   _DI_ bool pop_on_if_any(cuda::std::pair<int, int> &out);
   _DI_ void on_cells(cuda::std::pair<uint8_t, uint8_t> cells[]) const;
@@ -360,6 +362,22 @@ _DI_ cuda::std::pair<int, int> BitBoard<W>::first_on() const {
 
     return {x, y};
   }
+}
+
+template<unsigned W>
+_DI_ board_row_t<W> BitBoard<W>::first_row() const {
+  // TODO W=64
+  uint32_t mask = __ballot_sync(0xffffffff, state);
+  if (mask == 0)
+    return 0;
+  unsigned first_lane = find_first_set<32>(mask);
+  return __shfl_sync(0xffffffff, state, first_lane);
+}
+
+template<unsigned W>
+_DI_ board_row_t<W> BitBoard<W>::occupied_columns() const {
+  // TODO W=64
+  return __reduce_or_sync(0xffffffff, state);
 }
 
 template<unsigned W>

@@ -32,10 +32,12 @@ add_subdirectory(test)
 
 add_executable(three main.cpp three_kernel.cu)
 add_executable(three_c4 main_c4.cpp three_kernel_c4.cu)
+add_executable(three_c4near main_c4near.cpp three_kernel_c4near.cu)
 add_executable(three_d2 main_d2.cpp three_kernel_d2.cu)
 
 target_include_directories(three PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 target_include_directories(three_c4 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+target_include_directories(three_c4near PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 target_include_directories(three_d2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
 add_compile_definitions(THREE_ENABLE_STATS)

@@ -22,6 +22,28 @@ struct BinaryCount {
 
   _DI_ void operator+=(const BinaryCount other) { *this = *this + other; }
 
+  _DI_ BinaryCount lshift(unsigned shift) const {
+    if (shift >= W) {
+      return {0, 0, 0};
+    }
+    return {
+        static_cast<board_row_t<W>>(bit0 << shift),
+        static_cast<board_row_t<W>>(bit1 << shift),
+        static_cast<board_row_t<W>>(overflow << shift),
+    };
+  }
+
+  _DI_ BinaryCount rshift(unsigned shift) const {
+    if (shift >= W) {
+      return {0, 0, 0};
+    }
+    return {
+        static_cast<board_row_t<W>>(bit0 >> shift),
+        static_cast<board_row_t<W>>(bit1 >> shift),
+        static_cast<board_row_t<W>>(overflow >> shift),
+    };
+  }
+
   static _DI_ BinaryCount vertical(const board_row_t<W> value) {
     BinaryCount result = {value, 0, 0};
 
@@ -66,6 +88,26 @@ struct BinaryCountSaturating {
   }
 
   _DI_ void operator+=(const BinaryCountSaturating other) { *this = *this + other; }
+
+  _DI_ BinaryCountSaturating lshift(unsigned shift) const {
+    if (shift >= W) {
+      return {0, 0};
+    }
+    return {
+        static_cast<board_row_t<W>>(bit0 << shift),
+        static_cast<board_row_t<W>>(bit1 << shift),
+    };
+  }
+
+  _DI_ BinaryCountSaturating rshift(unsigned shift) const {
+    if (shift >= W) {
+      return {0, 0};
+    }
+    return {
+        static_cast<board_row_t<W>>(bit0 >> shift),
+        static_cast<board_row_t<W>>(bit1 >> shift),
+    };
+  }
 
   template <unsigned Target>
   _DI_ board_row_t<W> eq_target() const {
@@ -158,6 +200,28 @@ struct BinaryCountSaturating3 {
   }
 
   _DI_ void operator+=(const BinaryCountSaturating3 other) { *this = *this + other; }
+
+  _DI_ BinaryCountSaturating3 lshift(unsigned shift) const {
+    if (shift >= W) {
+      return {0, 0, 0};
+    }
+    return {
+        static_cast<board_row_t<W>>(bit0 << shift),
+        static_cast<board_row_t<W>>(bit1 << shift),
+        static_cast<board_row_t<W>>(bit2 << shift),
+    };
+  }
+
+  _DI_ BinaryCountSaturating3 rshift(unsigned shift) const {
+    if (shift >= W) {
+      return {0, 0, 0};
+    }
+    return {
+        static_cast<board_row_t<W>>(bit0 >> shift),
+        static_cast<board_row_t<W>>(bit1 >> shift),
+        static_cast<board_row_t<W>>(bit2 >> shift),
+    };
+  }
 
   template <unsigned Target>
   _DI_ board_row_t<W> eq_target() const {
