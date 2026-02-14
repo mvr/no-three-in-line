@@ -12,8 +12,7 @@ answer is at most $2n$. The real question is, can we actually achieve
 $2n$ for every grid size? It's [conjectured] that the answer is "no"
 for grids large enough, but we don't know where the crossover point is
 and there's [no indication] that the number of $2n$-point solutions
-is falling away from exponential growth, at least up to $19 \times
-19$!
+is falling away from exponential growth, at least up to 19 × 19!
 
 [No-three-in-line problem]: https://en.wikipedia.org/wiki/No-three-in-line_problem
 [conjectured]: https://doi.org/10.4153%2FCMB-1968-062-3
@@ -32,15 +31,20 @@ example. So far a few new values have been calculated over what was
 previously known:
 
 * Any symmetry:
-  * $19 \times 19$: 32577
+  * 19 × 19: 32577
 * 2-fold orthogonal symmetry:
-  * $32 \times 32$: 0
+  * 32 × 32: 0
+  * 34 × 34: 0*
 * 4-fold rotational symmetry:
-  * $44 \times 44$: 1016
-  * $46 \times 46$: 1366
-  * $48 \times 48$: 2124*
-  * $50 \times 50$: 3381*
-  * $52 \times 52$: 5062*
+  * 44 × 44: 1016
+  * 46 × 46: 1366
+  * 48 × 48: 2124*
+  * 50 × 50: 3381*
+  * 52 × 52: 5062*
+* "Near" 4-fold rotational symmetry (except the main diagonals):
+  * 43 × 43: 63
+  * 45 × 45: 106
+  * 47 × 47: 105
 
 *Thanks to [Thomas
 Prellberg](https://webspace.maths.qmul.ac.uk/t.prellberg/) and [Queen
