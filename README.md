@@ -45,6 +45,8 @@ previously known:
   * 43 × 43: 63
   * 45 × 45: 106
   * 47 × 47: 105
+  * 49 × 49: 196*
+  * 51 × 51: 264*
 
 *Thanks to [Thomas
 Prellberg](https://webspace.maths.qmul.ac.uk/t.prellberg/) and [Queen
