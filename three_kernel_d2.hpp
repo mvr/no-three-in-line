@@ -2,13 +2,5 @@
 
 #include "three_kernel.hpp"
 
-template <unsigned N>
-int solve_with_device_stack_d2();
-template <unsigned N>
-int solve_with_device_stack_d2(unsigned frontier_min_on);
-template <unsigned N>
-int solve_with_device_stack_d2(const board_array_t<32> *seed_on,
-                               const board_array_t<32> *seed_off);
-template <unsigned N>
-int solve_with_device_stack_d2(const board_array_t<64> *seed_on,
-                               const board_array_t<64> *seed_off);
+template <unsigned N, unsigned W>
+int solve_with_device_stack_d2(const SearchOptions<W> &options);

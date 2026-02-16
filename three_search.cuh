@@ -37,9 +37,13 @@ inline void maybe_print_stats(unsigned stack_size,
                               unsigned batch_size,
                               float batch_scale,
                               float push_ratio,
+                              unsigned interval_seconds,
                               bool force = false) {
+  if (!force && interval_seconds == 0) {
+    return;
+  }
   auto now = std::chrono::steady_clock::now();
-  if (!force && now - g_last_stats_print < std::chrono::seconds(10)) {
+  if (!force && now - g_last_stats_print < std::chrono::seconds(interval_seconds)) {
     return;
   }
 
@@ -62,14 +66,14 @@ inline void maybe_print_stats(unsigned stack_size,
   g_last_stats_print = now;
 }
 
-inline void stats_final(unsigned stack_size, float batch_scale) {
-  maybe_print_stats(stack_size, 1, batch_scale, 0.0f, true);
+inline void stats_final(unsigned stack_size, float batch_scale, unsigned interval_seconds) {
+  maybe_print_stats(stack_size, 1, batch_scale, 0.0f, interval_seconds, true);
 }
 #else
 __device__ __forceinline__ void stats_record(StatId, unsigned long long = 1ULL) {}
 inline void reset_search_stats() {}
-inline void maybe_print_stats(unsigned, unsigned, float, float, bool = false) {}
-inline void stats_final(unsigned, float) {}
+inline void maybe_print_stats(unsigned, unsigned, float, float, unsigned, bool = false) {}
+inline void stats_final(unsigned, float, unsigned) {}
 #endif
 
 template <unsigned W>
@@ -303,9 +307,7 @@ __global__ void work_kernel(typename Traits::Stack *__restrict__ stack,
 }
 
 template <typename Traits, bool FrontierMode>
-int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
-                                 const board_array_t<Traits::kW> *seed_off,
-                                 unsigned frontier_min_on) {
+int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
   Traits::init_host();
 
   using Stack = typename Traits::Stack;
@@ -330,10 +332,10 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
   host_output.capacity = output_capacity;
   cudaMemcpy(d_output, &host_output, sizeof(Output), cudaMemcpyHostToDevice);
 
-  if (seed_on && seed_off) {
+  if (options.mode == SearchMode::Seed) {
     Problem seed{};
-    seed.known_on = *seed_on;
-    seed.known_off = *seed_off;
+    seed.known_on = options.seed_on;
+    seed.known_off = options.seed_off;
     initialize_stack_seed_kernel<Traits><<<1, 32>>>(d_stack, seed);
   } else {
     initialize_stack_kernel<Traits><<<1, 32>>>(d_stack);
@@ -347,8 +349,23 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
   unsigned start_size;
   cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
   float feedback_scale = 1 / static_cast<float>(BATCH_MAX_SIZE / BATCH_WARMUP_SIZE);
+  const auto start_time = std::chrono::steady_clock::now();
 
   while (start_size > 0) {
+    if (options.time_limit_seconds > 0) {
+      const auto now = std::chrono::steady_clock::now();
+      const unsigned long long elapsed =
+          static_cast<unsigned long long>(
+              std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count());
+      if (elapsed >= options.time_limit_seconds) {
+        std::cerr << "[warn] time limit reached"
+                  << " elapsed=" << elapsed
+                  << " limit=" << options.time_limit_seconds
+                  << std::endl;
+        break;
+      }
+    }
+
     unsigned batch_size = static_cast<unsigned>(feedback_scale * static_cast<float>(BATCH_MAX_SIZE));
     batch_size = std::clamp(batch_size, 0u, std::min(start_size, BATCH_MAX_SIZE));
     unsigned batch_start = start_size - batch_size;
@@ -366,7 +383,7 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
           d_output,
           batch_start,
           batch_size,
-          frontier_min_on);
+          options.frontier_min_on);
 
       cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
       if (overflow_count == 0) {
@@ -463,17 +480,25 @@ int solve_with_device_stack_impl(const board_array_t<Traits::kW> *seed_on,
         }
         std::cout.flush();
       } else {
+        if (options.first_solution) {
+          Traits::emit_solution(outputs.front());
+          break;
+        }
         for (const auto &entry : outputs) {
           Traits::emit_solution(entry);
         }
       }
     }
 
-    maybe_print_stats(start_size, batch_size, feedback_scale, push_ratio);
+    maybe_print_stats(start_size,
+                      batch_size,
+                      feedback_scale,
+                      push_ratio,
+                      options.stats_interval_seconds);
   }
 
   cudaDeviceSynchronize();
-  stats_final(start_size, feedback_scale);
+  stats_final(start_size, feedback_scale, options.stats_interval_seconds);
 
   if (d_compact_tmp) {
     cudaFree(d_compact_tmp);

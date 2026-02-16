@@ -115,22 +115,12 @@ struct AsymTraits {
 };
 
 template <unsigned N, unsigned W>
-int solve_with_device_stack(unsigned frontier_min_on) {
-  return solve_with_device_stack_impl<AsymTraits<N, W>, true>(nullptr, nullptr, frontier_min_on);
-}
-
-template <unsigned N, unsigned W>
-int solve_with_device_stack() {
-  return solve_with_device_stack_impl<AsymTraits<N, W>, false>(nullptr, nullptr, 0);
-}
-
-template <unsigned N, unsigned W>
-int solve_with_device_stack(const board_array_t<W> *seed_on,
-                            const board_array_t<W> *seed_off) {
-  return solve_with_device_stack_impl<AsymTraits<N, W>, false>(seed_on, seed_off, 0);
+int solve_with_device_stack(const SearchOptions<W> &options) {
+  if (options.mode == SearchMode::Frontier) {
+    return solve_with_device_stack_impl<AsymTraits<N, W>, true>(options);
+  }
+  return solve_with_device_stack_impl<AsymTraits<N, W>, false>(options);
 }
 
 // Explicitly instantiate the template to the N in params.hpp, or it doesn't get compiled at all.
-template int solve_with_device_stack<N, 32>();
-template int solve_with_device_stack<N, 32>(const board_array_t<32> *, const board_array_t<32> *);
-template int solve_with_device_stack<N, 32>(unsigned);
+template int solve_with_device_stack<N, 32>(const SearchOptions<32> &);

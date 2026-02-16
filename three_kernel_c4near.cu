@@ -292,21 +292,11 @@ struct C4NearTraits {
 };
 
 template <unsigned N>
-int solve_with_device_stack_c4near() {
-  return solve_with_device_stack_impl<C4NearTraits<N>, false>(nullptr, nullptr, 0);
+int solve_with_device_stack_c4near(const SearchOptions<32> &options) {
+  if (options.mode == SearchMode::Frontier) {
+    return solve_with_device_stack_impl<C4NearTraits<N>, true>(options);
+  }
+  return solve_with_device_stack_impl<C4NearTraits<N>, false>(options);
 }
 
-template <unsigned N>
-int solve_with_device_stack_c4near(const board_array_t<32> *seed_on,
-                                   const board_array_t<32> *seed_off) {
-  return solve_with_device_stack_impl<C4NearTraits<N>, false>(seed_on, seed_off, 0);
-}
-
-template <unsigned N>
-int solve_with_device_stack_c4near(unsigned frontier_min_on) {
-  return solve_with_device_stack_impl<C4NearTraits<N>, true>(nullptr, nullptr, frontier_min_on);
-}
-
-template int solve_with_device_stack_c4near<N>();
-template int solve_with_device_stack_c4near<N>(const board_array_t<32> *, const board_array_t<32> *);
-template int solve_with_device_stack_c4near<N>(unsigned);
+template int solve_with_device_stack_c4near<N>(const SearchOptions<32> &);

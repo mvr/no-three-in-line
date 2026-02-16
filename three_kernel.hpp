@@ -1,10 +1,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <array>
-#include <vector>
-#include <utility>
-#include <ostream>
 
 #include "common.hpp"
 
@@ -26,6 +22,23 @@ enum class StatId : unsigned {
   Count
 };
 
+enum class SearchMode : unsigned {
+  Normal,
+  Frontier,
+  Seed
+};
+
+template <unsigned W>
+struct SearchOptions {
+  SearchMode mode = SearchMode::Normal;
+  unsigned frontier_min_on = 0;
+  board_array_t<W> seed_on{};
+  board_array_t<W> seed_off{};
+  bool first_solution = false;
+  unsigned time_limit_seconds = 0;
+  unsigned stats_interval_seconds = 10;
+};
+
 template <unsigned W>
 struct OutputBuffer {
   Problem<W> *entries;
@@ -42,10 +55,4 @@ struct DeviceStack {
 };
 
 template <unsigned N, unsigned W>
-int solve_with_device_stack();
-template <unsigned N, unsigned W>
-int solve_with_device_stack(const board_array_t<W> *seed_on,
-                            const board_array_t<W> *seed_off);
-
-template <unsigned N, unsigned W>
-int solve_with_device_stack(unsigned frontier_min_on);
+int solve_with_device_stack(const SearchOptions<W> &options);
