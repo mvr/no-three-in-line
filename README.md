@@ -47,6 +47,7 @@ previously known:
   * 47 × 47: 105
   * 49 × 49: 196*
   * 51 × 51: 264*
+  * 53 × 53: 377*
 
 *Thanks to [Thomas
 Prellberg](https://webspace.maths.qmul.ac.uk/t.prellberg/) and [Queen
