@@ -5,6 +5,7 @@
 #include "common.hpp"
 #include "compare_with_unknowns.cuh"
 #include "lookup_tables.cuh"
+#include "three_board_d4_helpers.cuh"
 #include "three_board.cu"
 
 #include <cuda/std/utility>
@@ -49,6 +50,7 @@ struct ThreeBoardD4Even {
   static_assert(N >= 2 && N <= 32, "ThreeBoardD4Even requires 2 <= N <= 32");
 
   static constexpr unsigned H = N - 1;
+  using Tri = D4CompactTriangle32<H>;
   static constexpr unsigned FULL_N = 2 * H;
   static constexpr unsigned FULL_W = (FULL_N <= 32) ? 32 : 64;
   static constexpr unsigned STORE_H = H;
@@ -72,51 +74,30 @@ struct ThreeBoardD4Even {
     }
   }
 
-  static _DI_ constexpr board_row_t<32> family_mask() {
-    if constexpr (H == 32) {
-      return 0xffffffffu;
-    } else {
-      return (board_row_t<32>(1u) << H) - 1u;
-    }
-  }
-
   static _DI_ constexpr board_row_t<32> main_triangle_mask(unsigned ly) {
-    return (ly < H) ? ((board_row_t<32>(1u) << (ly + 1u)) - 1u) : 0u;
+    return Tri::main_triangle_mask(ly, STORE_H);
   }
 
   static _DI_ constexpr board_row_t<32> anti_triangle_mask(unsigned ly) {
-    return row_mask() & ~main_triangle_mask(ly);
+    return Tri::anti_triangle_mask(row_mask(), ly, STORE_H);
   }
 
   static _DI_ constexpr unsigned anti_width(unsigned ly) {
-    return (ly < H) ? (H - ly) : 0u;
+    return Tri::anti_width(ly);
   }
 
   // Convert between compact anti-side storage bits and a matrix-form row that
   // lives in columns [ly, H-1] and can be transposed with flip_diagonal().
   static _DI_ board_row_t<32> unpack_anti_compact(board_row_t<32> compact, unsigned ly) {
-    const unsigned width = anti_width(ly);
-    if (width == 0u) {
-      return 0u;
-    }
-    const board_row_t<32> compact_mask = (board_row_t<32>(1u) << width) - 1u;
-    const board_row_t<32> compact_bits = compact & compact_mask;
-    const board_row_t<32> rev = __brev(compact_bits) >> (32u - width);
-    return rev << ly;
+    return Tri::unpack_anti_compact_matrix(compact, ly);
   }
 
   static _DI_ board_row_t<32> pack_anti_compact(board_row_t<32> matrix_row, unsigned ly) {
-    const unsigned width = anti_width(ly);
-    if (width == 0u) {
-      return 0u;
-    }
-    const board_row_t<32> compact_mask = (board_row_t<32>(1u) << width) - 1u;
-    const board_row_t<32> seg = (matrix_row >> ly) & compact_mask;
-    return __brev(seg) >> (32u - width);
+    return Tri::pack_anti_compact_matrix(matrix_row, ly);
   }
 
   static _DI_ board_row_t<32> reverse_low_bits(board_row_t<32> value) {
-    return (H == 0) ? 0u : (__brev(value) >> (32u - H));
+    return Tri::reverse_low_bits(value);
   }
 
   static _DI_ BitBoard<W> bounds();
@@ -136,20 +117,19 @@ struct ThreeBoardD4Even {
   static _HD_ cuda::std::pair<unsigned, unsigned> full_to_local_in_domain(int fx, int fy);
   static _HD_ cuda::std::pair<unsigned, unsigned> full_to_local_rep(int fx, int fy);
   static _HD_ unsigned storage_col_family(unsigned lx, unsigned ly);
-  static _DI_ board_row_t<32> logical_col_mask_on_storage_row(unsigned family, unsigned ly);
   static _DI_ BitBoard<W> logical_family_mask(unsigned family);
 
   static _DI_ BitBoard<W> canonical_reflect(BitBoard<W> board);
 
   static _DI_ board_row_t<32> column_family_mask(board_row_t<32> families, unsigned ly);
-  static _DI_ BinaryCountSaturating<32> family_on_counts(BitBoard<32> board);
-  static _DI_ BinaryCountSaturating3<32> family_on_counts3(BitBoard<32> board);
+  template <typename CounterT>
+  static _DI_ CounterT family_on_counts_impl(BitBoard<32> board);
+  static _DI_ BinaryCountSaturating<32> reverse_counter_bits(BinaryCountSaturating<32> counter);
+  static _DI_ BinaryCountSaturating3<32> reverse_counter_bits(BinaryCountSaturating3<32> counter);
   _DI_ ThreeBoardD4Even<N, W> force_orthogonal() const;
   _DI_ BitBoard<W> vulnerable() const;
   template <unsigned UnknownTarget>
   _DI_ BitBoard<W> semivulnerable_like() const;
-  _DI_ BitBoard<W> semivulnerable() const;
-  _DI_ BitBoard<W> quasivulnerable() const;
 
   _DI_ BitBoard<W> preferred_branch_cells() const;
 
@@ -317,21 +297,21 @@ _HD_ unsigned ThreeBoardD4Even<N, W>::storage_col_family(unsigned lx, unsigned l
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::canonical_reflect(BitBoard<W> board) {
   const unsigned lane = threadIdx.x & 31;
-  const bool active = lane < STORE_H;
-  const board_row_t<32> mask_row = row_mask();
-  const board_row_t<32> src_row = active ? (board.state & mask_row) : 0u;
 
   // Split storage row into:
   //   A: lower triangle (x >= 0 side), columns [0..ly]
   //   B: upper-triangle tile encoded in compact form (x < 0 side), columns [ly+1..H]
-  const board_row_t<32> a_mask = active ? main_triangle_mask(lane) : 0u;
-  const board_row_t<32> a_row = src_row & a_mask;
-  const board_row_t<32> b_compact = active ? ((src_row & anti_triangle_mask(lane)) >> (lane + 1)) : 0u;
+  const board_row_t<32> a_mask = main_triangle_mask(lane);
+  const board_row_t<32> a_row = board.state & a_mask;
+  const unsigned b_width = anti_width(lane);
+  board_row_t<32> b_compact = 0u;
+  if (b_width != 0u) {
+    b_compact = (board.state & anti_triangle_mask(lane)) >> (lane + 1u);
+  }
 
   // Convert compact B tile into an HxH upper-triangular matrix row:
   // compact index k in [0..H-ly-1] maps to matrix column j = H-k-1.
-  const unsigned b_width = active ? anti_width(lane) : 0u;
-  const board_row_t<32> b_row_mat = active ? unpack_anti_compact(b_compact, lane) : 0u;
+  const board_row_t<32> b_row_mat = unpack_anti_compact(b_compact, lane);
 
   // Reflection x -> -x-1 under this storage is:
   //   A_out = transpose(B_mat)
@@ -339,15 +319,14 @@ _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::canonical_reflect(BitBoard<W> board) {
   const BitBoard<32> a_t = BitBoard<32>(a_row).flip_diagonal();
   const BitBoard<32> b_t = BitBoard<32>(b_row_mat).flip_diagonal();
 
-  const board_row_t<32> out_a = active ? (b_t.state & a_mask) : 0u;
+  const board_row_t<32> out_a = b_t.state & a_mask;
   board_row_t<32> out_b = 0u;
-  if (active && b_width != 0u) {
+  if (b_width != 0u) {
     const board_row_t<32> b_compact_out = pack_anti_compact(a_t.state, lane);
     out_b = b_compact_out << (lane + 1u);
   }
 
   BitBoard<W> out(out_a | out_b);
-  out &= bounds();
   return out;
 }
 
@@ -405,77 +384,55 @@ _DI_ board_row_t<32> ThreeBoardD4Even<N, W>::column_family_mask(board_row_t<32> 
 }
 
 template <unsigned N, unsigned W>
-_DI_ board_row_t<32> ThreeBoardD4Even<N, W>::logical_col_mask_on_storage_row(unsigned family,
-                                                                              unsigned ly) {
-  if (family >= H || ly >= H) {
-    return 0u;
-  }
-  return column_family_mask(board_row_t<32>(1u) << family, ly);
-}
-
-template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::logical_family_mask(unsigned family) {
   const unsigned lane = threadIdx.x & 31;
   const board_row_t<32> row_bits =
       (family < H && lane == family) ? row_mask() : board_row_t<32>(0u);
-  const board_row_t<32> col_bits = logical_col_mask_on_storage_row(family, lane);
-  BitBoard<W> out(row_bits | col_bits);
-  out &= bounds();
-  return out;
+  const board_row_t<32> family_bit = (family < H) ? (board_row_t<32>(1u) << family) : 0u;
+  const board_row_t<32> col_bits = column_family_mask(family_bit, lane);
+  return BitBoard<W>(row_bits | col_bits);
 }
 
 template <unsigned N, unsigned W>
-_DI_ BinaryCountSaturating<32> ThreeBoardD4Even<N, W>::family_on_counts(BitBoard<32> board) {
-  const unsigned lane = threadIdx.x & 31;
-  const bool active = lane < STORE_H;
-
-  const board_row_t<32> row = active ? (board.state & row_mask()) : 0u;
-  const board_row_t<32> tri_main_mask = active ? main_triangle_mask(lane) : 0u;
-  const board_row_t<32> tri_anti_mask = active ? anti_triangle_mask(lane) : 0u;
-
-  const board_row_t<32> main = row & tri_main_mask;
-  const board_row_t<32> anti = row & tri_anti_mask;
-
-  const board_row_t<32> main_no_diag = main & ~(board_row_t<32>(1u) << lane);
-  const board_row_t<32> anti_no_diag = anti & ~(board_row_t<32>(1u) << H);
-  const board_row_t<32> anti_aligned = active ? (anti_no_diag >> (lane + 1)) : 0u;
-
-  const BinaryCountSaturating<32> row_counter = BinaryCountSaturating<32>::horizontal(main) +
-                                                BinaryCountSaturating<32>::horizontal(anti);
-  const BinaryCountSaturating<32> main_col_counter = BinaryCountSaturating<32>::vertical(main_no_diag);
-  const BinaryCountSaturating<32> anti_col_k_counter = BinaryCountSaturating<32>::vertical(anti_aligned);
-  const BinaryCountSaturating<32> anti_col_i_counter = {
-      reverse_low_bits(anti_col_k_counter.bit0),
-      reverse_low_bits(anti_col_k_counter.bit1),
+_DI_ BinaryCountSaturating<32> ThreeBoardD4Even<N, W>::reverse_counter_bits(
+    BinaryCountSaturating<32> counter) {
+  return {
+      reverse_low_bits(counter.bit0),
+      reverse_low_bits(counter.bit1),
   };
-  return row_counter + main_col_counter + anti_col_i_counter;
 }
 
 template <unsigned N, unsigned W>
-_DI_ BinaryCountSaturating3<32> ThreeBoardD4Even<N, W>::family_on_counts3(BitBoard<32> board) {
+_DI_ BinaryCountSaturating3<32> ThreeBoardD4Even<N, W>::reverse_counter_bits(
+    BinaryCountSaturating3<32> counter) {
+  return {
+      reverse_low_bits(counter.bit0),
+      reverse_low_bits(counter.bit1),
+      reverse_low_bits(counter.bit2),
+  };
+}
+
+template <unsigned N, unsigned W>
+template <typename CounterT>
+_DI_ CounterT ThreeBoardD4Even<N, W>::family_on_counts_impl(BitBoard<32> board) {
   const unsigned lane = threadIdx.x & 31;
-  const bool active = lane < STORE_H;
+  const board_row_t<32> tri_main_mask = main_triangle_mask(lane);
+  const board_row_t<32> tri_anti_mask = anti_triangle_mask(lane);
 
-  const board_row_t<32> row = active ? (board.state & row_mask()) : 0u;
-  const board_row_t<32> tri_main_mask = active ? main_triangle_mask(lane) : 0u;
-  const board_row_t<32> tri_anti_mask = active ? anti_triangle_mask(lane) : 0u;
-
-  const board_row_t<32> main = row & tri_main_mask;
-  const board_row_t<32> anti = row & tri_anti_mask;
+  const board_row_t<32> main = board.state & tri_main_mask;
+  const board_row_t<32> anti = board.state & tri_anti_mask;
 
   const board_row_t<32> main_no_diag = main & ~(board_row_t<32>(1u) << lane);
   const board_row_t<32> anti_no_diag = anti & ~(board_row_t<32>(1u) << H);
-  const board_row_t<32> anti_aligned = active ? (anti_no_diag >> (lane + 1)) : 0u;
+  board_row_t<32> anti_aligned = 0u;
+  if (lane < H) {
+    anti_aligned = anti_no_diag >> (lane + 1u);
+  }
 
-  const BinaryCountSaturating3<32> row_counter = BinaryCountSaturating3<32>::horizontal(main) +
-                                                 BinaryCountSaturating3<32>::horizontal(anti);
-  const BinaryCountSaturating3<32> main_col_counter = BinaryCountSaturating3<32>::vertical(main_no_diag);
-  const BinaryCountSaturating3<32> anti_col_k_counter = BinaryCountSaturating3<32>::vertical(anti_aligned);
-  const BinaryCountSaturating3<32> anti_col_i_counter = {
-      reverse_low_bits(anti_col_k_counter.bit0),
-      reverse_low_bits(anti_col_k_counter.bit1),
-      reverse_low_bits(anti_col_k_counter.bit2),
-  };
+  const CounterT row_counter = CounterT::horizontal(main) + CounterT::horizontal(anti);
+  const CounterT main_col_counter = CounterT::vertical(main_no_diag);
+  const CounterT anti_col_k_counter = CounterT::vertical(anti_aligned);
+  const CounterT anti_col_i_counter = reverse_counter_bits(anti_col_k_counter);
   return row_counter + main_col_counter + anti_col_i_counter;
 }
 
@@ -483,22 +440,24 @@ template <unsigned N, unsigned W>
 _DI_ ThreeBoardD4Even<N, W> ThreeBoardD4Even<N, W>::force_orthogonal() const {
   ThreeBoardD4Even<N, W> result = *this;
   const unsigned lane = threadIdx.x & 31;
+  const board_row_t<32> families_mask = Tri::low_mask(H);
 
-  const BinaryCountSaturating<32> on_counter = family_on_counts(known_on);
-  const board_row_t<32> on_eq_2 = on_counter.template eq_target<2>() & family_mask();
-  const board_row_t<32> on_gt_2 = (on_counter.bit1 & on_counter.bit0) & family_mask();
+  const BinaryCountSaturating<32> on_counter =
+      family_on_counts_impl<BinaryCountSaturating<32>>(known_on);
+  const board_row_t<32> on_eq_2 = on_counter.template eq_target<2>() & families_mask;
+  const board_row_t<32> on_gt_2 = (on_counter.bit1 & on_counter.bit0) & families_mask;
 
   const BitBoard<32> not_known_off = (~known_off) & bounds();
-  const BinaryCountSaturating<32> not_off_counter = family_on_counts(not_known_off);
-  const board_row_t<32> not_off_eq_2 = not_off_counter.template eq_target<2>() & family_mask();
-  const board_row_t<32> not_off_lt_2 = (~not_off_counter.bit1) & family_mask();
+  const BinaryCountSaturating<32> not_off_counter =
+      family_on_counts_impl<BinaryCountSaturating<32>>(not_known_off);
+  const board_row_t<32> not_off_eq_2 = not_off_counter.template eq_target<2>() & families_mask;
+  const board_row_t<32> not_off_lt_2 = (~not_off_counter.bit1) & families_mask;
 
   const bool contradiction = (on_gt_2 != 0u) || (not_off_lt_2 != 0u);
   if (__any_sync(0xffffffffu, contradiction)) {
-    const BitBoard<32> bds = bounds();
-    result.known_on |= bds;
-    result.known_off |= bds;
-    result.apply_bounds();
+    const BitBoard<W> bds = bounds();
+    result.known_on = bds;
+    result.known_off = bds;
     return result;
   }
 
@@ -520,15 +479,18 @@ _DI_ ThreeBoardD4Even<N, W> ThreeBoardD4Even<N, W>::force_orthogonal() const {
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::vulnerable() const {
   const unsigned lane = threadIdx.x & 31;
+  const board_row_t<32> families_mask = Tri::low_mask(H);
 
   const BitBoard<W> unknown = (~known_on & ~known_off) & bounds();
-  const BinaryCountSaturating3<32> on_counter = family_on_counts3(known_on);
-  const BinaryCountSaturating3<32> unknown_counter = family_on_counts3(unknown);
+  const BinaryCountSaturating3<32> on_counter =
+      family_on_counts_impl<BinaryCountSaturating3<32>>(known_on);
+  const BinaryCountSaturating3<32> unknown_counter =
+      family_on_counts_impl<BinaryCountSaturating3<32>>(unknown);
 
-  const board_row_t<32> on_eq_0 = on_counter.template eq_target<0>() & family_mask();
-  const board_row_t<32> on_eq_1 = on_counter.template eq_target<1>() & family_mask();
-  const board_row_t<32> unknown_eq_2 = unknown_counter.template eq_target<2>() & family_mask();
-  const board_row_t<32> unknown_eq_3 = unknown_counter.template eq_target<3>() & family_mask();
+  const board_row_t<32> on_eq_0 = on_counter.template eq_target<0>() & families_mask;
+  const board_row_t<32> on_eq_1 = on_counter.template eq_target<1>() & families_mask;
+  const board_row_t<32> unknown_eq_2 = unknown_counter.template eq_target<2>() & families_mask;
+  const board_row_t<32> unknown_eq_3 = unknown_counter.template eq_target<3>() & families_mask;
   const board_row_t<32> line_match = (on_eq_1 & unknown_eq_2) | (on_eq_0 & unknown_eq_3);
 
   const board_row_t<32> row_match = ((line_match >> lane) & 1u) ? row_mask() : board_row_t<32>(0u);
@@ -536,7 +498,6 @@ _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::vulnerable() const {
 
   BitBoard<W> result{};
   result.state = unknown.state & (row_match | col_match);
-  result &= bounds();
   return result;
 }
 
@@ -545,13 +506,17 @@ template <unsigned UnknownTarget>
 _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::semivulnerable_like() const {
   static_assert(UnknownTarget < 8, "semivulnerable_like expects target in [0, 7]");
   const unsigned lane = threadIdx.x & 31;
+  const board_row_t<32> families_mask = Tri::low_mask(H);
 
   const BitBoard<W> unknown = (~known_on & ~known_off) & bounds();
-  const BinaryCountSaturating3<32> on_counter = family_on_counts3(known_on);
-  const BinaryCountSaturating3<32> unknown_counter = family_on_counts3(unknown);
+  const BinaryCountSaturating3<32> on_counter =
+      family_on_counts_impl<BinaryCountSaturating3<32>>(known_on);
+  const BinaryCountSaturating3<32> unknown_counter =
+      family_on_counts_impl<BinaryCountSaturating3<32>>(unknown);
 
-  const board_row_t<32> on_eq_0 = on_counter.template eq_target<0>() & family_mask();
-  const board_row_t<32> unknown_eq = unknown_counter.template eq_target<UnknownTarget>() & family_mask();
+  const board_row_t<32> on_eq_0 = on_counter.template eq_target<0>() & families_mask;
+  const board_row_t<32> unknown_eq =
+      unknown_counter.template eq_target<UnknownTarget>() & families_mask;
   const board_row_t<32> line_match = on_eq_0 & unknown_eq;
 
   const board_row_t<32> row_match = ((line_match >> lane) & 1u) ? row_mask() : board_row_t<32>(0u);
@@ -559,18 +524,7 @@ _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::semivulnerable_like() const {
 
   BitBoard<W> result{};
   result.state = unknown.state & (row_match | col_match);
-  result &= bounds();
   return result;
-}
-
-template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoardD4Even<N, W>::semivulnerable() const {
-  return semivulnerable_like<4>();
-}
-
-template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoardD4Even<N, W>::quasivulnerable() const {
-  return semivulnerable_like<5>();
 }
 
 template <unsigned N, unsigned W>
@@ -579,11 +533,11 @@ _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::preferred_branch_cells() const {
   if (!cells.empty()) {
     return cells;
   }
-  cells = semivulnerable();
+  cells = semivulnerable_like<4>();
   if (!cells.empty()) {
     return cells;
   }
-  cells = quasivulnerable();
+  cells = semivulnerable_like<5>();
   if (!cells.empty()) {
     return cells;
   }
@@ -596,28 +550,18 @@ _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::eliminate_pair_steps(cuda::std::pair<in
                                                               int step_x,
                                                               int step_y) const {
   BitBoard<W> result;
-  const int row = static_cast<int>(threadIdx.x & 31);
-  if (row >= static_cast<int>(STORE_H)) {
-    return result;
+  const int fy = static_cast<int>(threadIdx.x & 31);
+  if (fy != pi.second && fy != qj.second) {
+    const int diff = fy - pi.second;
+    if (diff % step_y == 0) {
+      const int k = diff / step_y;
+      const int fx = pi.first + step_x * k;
+      if (in_domain(fx, fy)) {
+        const auto local = full_to_local_in_domain(fx, fy);
+        result.state |= (board_row_t<32>(1u) << local.first);
+      }
+    }
   }
-  const int fy = row;
-  if (fy == pi.second || fy == qj.second) {
-    return result;
-  }
-
-  const int diff = fy - pi.second;
-  if (diff % step_y != 0) {
-    return result;
-  }
-
-  const int k = diff / step_y;
-  const int fx = pi.first + step_x * k;
-  if (!in_domain(fx, fy)) {
-    return result;
-  }
-
-  const auto local = full_to_local_in_domain(fx, fy);
-  result.state |= (board_row_t<32>(1u) << local.first);
   return result;
 }
 
@@ -700,7 +644,12 @@ _DI_ BitBoard<W> ThreeBoardD4Even<N, W>::eliminate_line(cuda::std::pair<unsigned
   const size_t base = (static_cast<size_t>(p_idx) * cell_count + q_idx) * LINE_ROWS;
   const unsigned lane = threadIdx.x & 31;
   const uint32_t *__restrict__ table = g_d4even_line_table_32;
-  const uint32_t row = (lane < LINE_ROWS) ? __ldg(table + base + lane) : 0u;
+  uint32_t row = 0u;
+  if constexpr (LINE_TABLE_FULL_WARP_LOAD) {
+    row = __ldg(table + base + lane);
+  } else {
+    row = (lane < LINE_ROWS) ? __ldg(table + base + lane) : 0u;
+  }
   return BitBoard<W>(row);
 }
 
@@ -714,7 +663,6 @@ _DI_ void ThreeBoardD4Even<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, 
       return;
     }
   }
-  apply_bounds();
 }
 
 template <unsigned N, unsigned W>
@@ -730,7 +678,6 @@ _DI_ void ThreeBoardD4Even<N, W>::eliminate_all_lines(BitBoard<W> seed) {
       }
     }
   }
-  apply_bounds();
 }
 
 template <unsigned N, unsigned W>
@@ -743,7 +690,6 @@ _DI_ void ThreeBoardD4Even<N, W>::eliminate_all_lines_slow(cuda::std::pair<unsig
       return;
     }
   }
-  apply_bounds();
 }
 
 template <unsigned N, unsigned W>
@@ -759,7 +705,6 @@ _DI_ void ThreeBoardD4Even<N, W>::eliminate_all_lines_slow(BitBoard<W> seed) {
       }
     }
   }
-  apply_bounds();
 }
 
 template <unsigned N, unsigned W>

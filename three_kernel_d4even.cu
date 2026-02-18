@@ -168,6 +168,7 @@ struct D4EvenTraits {
 
   _DI_ static void seed_initial(Stack *stack) {
     Board board;
+    board.known_off.set({0, 0});
     stack_push<32>(stack, board.known_on, board.known_off);
   }
 
@@ -176,9 +177,12 @@ struct D4EvenTraits {
     const bool active = lane < Board::H;
 
     const BitBoard<32> unknown = (~board.known_on & ~board.known_off) & Board::bounds();
-    const BinaryCountSaturating<32> on_counter = Board::family_on_counts(board.known_on);
-    const BinaryCountSaturating3<32> unknown_counter = Board::family_on_counts3(unknown);
-    const board_row_t<32> on_eq_0 = on_counter.template eq_target<0>() & Board::family_mask();
+    const BinaryCountSaturating<32> on_counter =
+        Board::template family_on_counts_impl<BinaryCountSaturating<32>>(board.known_on);
+    const BinaryCountSaturating3<32> unknown_counter =
+        Board::template family_on_counts_impl<BinaryCountSaturating3<32>>(unknown);
+    const board_row_t<32> on_eq_0 =
+        on_counter.template eq_target<0>() & Board::Tri::low_mask(Board::H);
 
     unsigned family0 = lane;
     unsigned family1 = lane;

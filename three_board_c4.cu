@@ -50,8 +50,6 @@ struct ThreeBoardC4 {
 
   _DI_ ThreeBoardC4<N, W> force_orthogonal() const;
   _DI_ BitBoard<W> vulnerable() const;
-  _DI_ BitBoard<W> semivulnerable() const;
-  _DI_ BitBoard<W> quasivulnerable() const;
   _DI_ BitBoard<W> preferred_branch_cells() const;
   template <unsigned UnknownTarget>
   _DI_ BitBoard<W> semivulnerable_like() const;
@@ -631,26 +629,16 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::semivulnerable_like() const {
 }
 
 template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoardC4<N, W>::semivulnerable() const {
-  return semivulnerable_like<4>();
-}
-
-template <unsigned N, unsigned W>
-_DI_ BitBoard<W> ThreeBoardC4<N, W>::quasivulnerable() const {
-  return semivulnerable_like<5>();
-}
-
-template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoardC4<N, W>::preferred_branch_cells() const {
   BitBoard<W> cells = vulnerable();
   if (!cells.empty()) {
     return cells;
   }
-  cells = semivulnerable();
+  cells = semivulnerable_like<4>();
   if (!cells.empty()) {
     return cells;
   }
-  cells = quasivulnerable();
+  cells = semivulnerable_like<5>();
   if (!cells.empty()) {
     return cells;
   }
