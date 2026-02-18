@@ -94,9 +94,6 @@ struct C4Traits {
   static constexpr unsigned kW = W;
   static constexpr unsigned kSymForceMaxOn = (N / 2);
 
-  static constexpr unsigned kRowOnZeroUnknownNum = 7;
-  static constexpr unsigned kRowOnZeroUnknownDen = 4;
-
   using Board = ThreeBoardC4<N, W>;
   using Problem = ::Problem<W>;
   using Stack = DeviceStack<W>;
@@ -126,56 +123,21 @@ struct C4Traits {
       board_row_t<32> row_unknown = ~(row_on | row_off) & row_mask;
       board_row_t<32> col_unknown = ~(col_on | col_off) & row_mask;
 
-      unsigned pivot_unknown = (row_unknown >> lane) & 1u;
-      bool row_empty = (row_on | col_on) == 0;
-      unsigned unknown_count = popcount<32>(row_unknown) + popcount<32>(col_unknown) - pivot_unknown;
+      const unsigned pivot_unknown = (row_unknown >> lane) & 1u;
+      const unsigned unknown_count =
+          popcount<32>(row_unknown) + popcount<32>(col_unknown) - pivot_unknown;
 
-      unsigned row0 = lane;
-      unsigned row1 = lane;
-      unsigned best0_unknown = 0xffffffffu;
-      unsigned best1_unknown = 0xffffffffu;
-
-      if (lane < N && unknown_count != 0) {
-        if (row_empty) {
-          best0_unknown = unknown_count;
-        } else {
-          best1_unknown = unknown_count;
-        }
-      }
+      unsigned earliest_row = (lane < N && unknown_count != 0u) ? lane : 0xffffffffu;
 
       for (int offset = 16; offset > 0; offset /= 2) {
-        unsigned other_row0 = __shfl_down_sync(0xffffffff, row0, offset);
-        unsigned other0_unknown = __shfl_down_sync(0xffffffff, best0_unknown, offset);
-        if (other0_unknown < best0_unknown ||
-            (other0_unknown == best0_unknown && other_row0 < row0)) {
-          row0 = other_row0;
-          best0_unknown = other0_unknown;
-        }
-
-        unsigned other_row1 = __shfl_down_sync(0xffffffff, row1, offset);
-        unsigned other1_unknown = __shfl_down_sync(0xffffffff, best1_unknown, offset);
-        if (other1_unknown < best1_unknown ||
-            (other1_unknown == best1_unknown && other_row1 < row1)) {
-          row1 = other_row1;
-          best1_unknown = other1_unknown;
+        unsigned other_earliest = __shfl_down_sync(0xffffffff, earliest_row, offset);
+        if (other_earliest < earliest_row) {
+          earliest_row = other_earliest;
         }
       }
 
-      row0 = __shfl_sync(0xffffffff, row0, 0);
-      row1 = __shfl_sync(0xffffffff, row1, 0);
-      best0_unknown = __shfl_sync(0xffffffff, best0_unknown, 0);
-      best1_unknown = __shfl_sync(0xffffffff, best1_unknown, 0);
-
-      if (best1_unknown == 0xffffffffu)
-        return row0;
-
-      if (best0_unknown == 0xffffffffu)
-        return row1;
-
-      if ((best0_unknown * kRowOnZeroUnknownDen) <= (best1_unknown * kRowOnZeroUnknownNum)) {
-        return row0;
-      }
-      return row1;
+      earliest_row = __shfl_sync(0xffffffff, earliest_row, 0);
+      return (earliest_row == 0xffffffffu) ? 0u : earliest_row;
     } else {
       constexpr board_row_t<64> row_mask = (N == 64) ? ~board_row_t<64>(0) : ((board_row_t<64>(1) << N) - 1);
       const unsigned lane = threadIdx.x & 31;
@@ -203,10 +165,7 @@ struct C4Traits {
       const board_row_t<64> col_off_odd =
           (((board_row_t<64>)off_t.state.w << 32) | off_t.state.z) & row_mask;
 
-      unsigned row0 = row_even;
-      unsigned row1 = row_even;
-      unsigned best0_unknown = 0xffffffffu;
-      unsigned best1_unknown = 0xffffffffu;
+      unsigned earliest_row = 0xffffffffu;
 
       if (row_even < N) {
         const unsigned row_on = popcount<64>(row_on_even);
@@ -220,13 +179,8 @@ struct C4Traits {
         const unsigned unknown_count = row_unknown + col_unknown - pivot_unknown;
 
         if (unknown_count != 0) {
-          const bool row_empty = (row_on + col_on) == 0;
-          if (row_empty) {
-            best0_unknown = unknown_count;
-            row0 = row_even;
-          } else {
-            best1_unknown = unknown_count;
-            row1 = row_even;
+          if (row_even < earliest_row) {
+            earliest_row = row_even;
           }
         }
       }
@@ -243,54 +197,21 @@ struct C4Traits {
         const unsigned unknown_count = row_unknown + col_unknown - pivot_unknown;
 
         if (unknown_count != 0) {
-          const bool row_empty = (row_on + col_on) == 0;
-          if (row_empty) {
-            if (unknown_count < best0_unknown || (unknown_count == best0_unknown && row_odd < row0)) {
-              best0_unknown = unknown_count;
-              row0 = row_odd;
-            }
-          } else {
-            if (unknown_count < best1_unknown || (unknown_count == best1_unknown && row_odd < row1)) {
-              best1_unknown = unknown_count;
-              row1 = row_odd;
-            }
+          if (row_odd < earliest_row) {
+            earliest_row = row_odd;
           }
         }
       }
 
       for (int offset = 16; offset > 0; offset /= 2) {
-        unsigned other_row0 = __shfl_down_sync(0xffffffff, row0, offset);
-        unsigned other0_unknown = __shfl_down_sync(0xffffffff, best0_unknown, offset);
-        if (other0_unknown < best0_unknown ||
-            (other0_unknown == best0_unknown && other_row0 < row0)) {
-          row0 = other_row0;
-          best0_unknown = other0_unknown;
-        }
-
-        unsigned other_row1 = __shfl_down_sync(0xffffffff, row1, offset);
-        unsigned other1_unknown = __shfl_down_sync(0xffffffff, best1_unknown, offset);
-        if (other1_unknown < best1_unknown ||
-            (other1_unknown == best1_unknown && other_row1 < row1)) {
-          row1 = other_row1;
-          best1_unknown = other1_unknown;
+        unsigned other_earliest = __shfl_down_sync(0xffffffff, earliest_row, offset);
+        if (other_earliest < earliest_row) {
+          earliest_row = other_earliest;
         }
       }
 
-      row0 = __shfl_sync(0xffffffff, row0, 0);
-      row1 = __shfl_sync(0xffffffff, row1, 0);
-      best0_unknown = __shfl_sync(0xffffffff, best0_unknown, 0);
-      best1_unknown = __shfl_sync(0xffffffff, best1_unknown, 0);
-
-      if (best1_unknown == 0xffffffffu)
-        return row0;
-
-      if (best0_unknown == 0xffffffffu)
-        return row1;
-
-      if ((best0_unknown * kRowOnZeroUnknownDen) <= (best1_unknown * kRowOnZeroUnknownNum)) {
-        return row0;
-      }
-      return row1;
+      earliest_row = __shfl_sync(0xffffffff, earliest_row, 0);
+      return (earliest_row == 0xffffffffu) ? 0u : earliest_row;
     }
   }
 

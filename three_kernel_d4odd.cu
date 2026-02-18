@@ -10,14 +10,6 @@
 #include "three_kernel_d4odd.hpp"
 #include "three_search.cuh"
 
-#ifndef D4ODD_FAMILY_ON_ZERO_UNKNOWN_NUM
-#define D4ODD_FAMILY_ON_ZERO_UNKNOWN_NUM 4
-#endif
-
-#ifndef D4ODD_FAMILY_ON_ZERO_UNKNOWN_DEN
-#define D4ODD_FAMILY_ON_ZERO_UNKNOWN_DEN 4
-#endif
-
 static constexpr unsigned D4ODD_FAMILY_MAX = 32;
 static constexpr unsigned D4ODD_FAMILY_ORDER_MAX = 2 * D4ODD_FAMILY_MAX;
 
@@ -100,9 +92,6 @@ struct D4OddTraits {
   static constexpr unsigned kN = Board::STORE_W;
   static constexpr unsigned kW = 32;
   static constexpr unsigned kSymForceMaxOn = (Board::H / 2);
-  static constexpr unsigned kFamilyOnZeroUnknownNum = D4ODD_FAMILY_ON_ZERO_UNKNOWN_NUM;
-  static constexpr unsigned kFamilyOnZeroUnknownDen = D4ODD_FAMILY_ON_ZERO_UNKNOWN_DEN;
-  static_assert(kFamilyOnZeroUnknownDen != 0u, "D4 family priority denominator must be non-zero");
 
   using Problem = Problem<32>;
   using Stack = DeviceStack<32>;
@@ -178,68 +167,33 @@ struct D4OddTraits {
     const bool active = lane < Board::STORE_W;
 
     const BitBoard<32> unknown = (~board.known_on & ~board.known_off) & Board::bounds();
-    const BinaryCountSaturating<32> on_counter =
-        Board::template family_on_counts_impl<BinaryCountSaturating<32>>(board.known_on);
     const BinaryCountSaturating3<32> unknown_counter =
         Board::template family_on_counts_impl<BinaryCountSaturating3<32>>(unknown);
-    const board_row_t<32> on_eq_0 = on_counter.template eq_target<0>() & Board::row_mask();
-
-    unsigned family0 = lane;
-    unsigned family1 = lane;
-    unsigned best0_unknown = 0xffffffffu;
-    unsigned best1_unknown = 0xffffffffu;
+    unsigned earliest_family = 0xffffffffu;
 
     if (active) {
-      const unsigned unknown_count =
+      const unsigned unknown_nonzero =
           ((unknown_counter.bit0 >> lane) & 1u) |
-          (((unknown_counter.bit1 >> lane) & 1u) << 1) |
-          (((unknown_counter.bit2 >> lane) & 1u) << 2);
-      const bool family_empty = ((on_eq_0 >> lane) & 1u) != 0u;
-      if (unknown_count != 0u) {
-        if (family_empty) {
-          family0 = lane;
-          best0_unknown = unknown_count;
-        } else {
-          family1 = lane;
-          best1_unknown = unknown_count;
-        }
+          ((unknown_counter.bit1 >> lane) & 1u) |
+          ((unknown_counter.bit2 >> lane) & 1u);
+      if (unknown_nonzero != 0u) {
+        earliest_family = lane;
       }
     }
 
     for (int offset = 16; offset > 0; offset /= 2) {
-      const unsigned other_family0 = __shfl_down_sync(0xffffffffu, family0, offset);
-      const unsigned other0_unknown = __shfl_down_sync(0xffffffffu, best0_unknown, offset);
-      if (other0_unknown < best0_unknown ||
-          (other0_unknown == best0_unknown && other_family0 < family0)) {
-        family0 = other_family0;
-        best0_unknown = other0_unknown;
-      }
-
-      const unsigned other_family1 = __shfl_down_sync(0xffffffffu, family1, offset);
-      const unsigned other1_unknown = __shfl_down_sync(0xffffffffu, best1_unknown, offset);
-      if (other1_unknown < best1_unknown ||
-          (other1_unknown == best1_unknown && other_family1 < family1)) {
-        family1 = other_family1;
-        best1_unknown = other1_unknown;
+      const unsigned other_earliest = __shfl_down_sync(0xffffffffu, earliest_family, offset);
+      if (other_earliest < earliest_family) {
+        earliest_family = other_earliest;
       }
     }
 
-    family0 = __shfl_sync(0xffffffffu, family0, 0);
-    family1 = __shfl_sync(0xffffffffu, family1, 0);
-    best0_unknown = __shfl_sync(0xffffffffu, best0_unknown, 0);
-    best1_unknown = __shfl_sync(0xffffffffu, best1_unknown, 0);
+    earliest_family = __shfl_sync(0xffffffffu, earliest_family, 0);
 
-    if (best1_unknown == 0xffffffffu) {
-      return family0;
+    if (earliest_family != 0xffffffffu) {
+      return earliest_family;
     }
-    if (best0_unknown == 0xffffffffu) {
-      return family1;
-    }
-    if ((best0_unknown * kFamilyOnZeroUnknownDen) <=
-        (best1_unknown * kFamilyOnZeroUnknownNum)) {
-      return family0;
-    }
-    return family1;
+    return 0u;
   }
 
   _DI_ static void resolve_outcome_family(const Board &board,
