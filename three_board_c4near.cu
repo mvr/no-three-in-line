@@ -613,7 +613,7 @@ _DI_ void ThreeBoardC4Near<N, W>::eliminate_all_lines(cuda::std::pair<unsigned, 
   BitBoard<W> qs = known_on;
   cuda::std::pair<int, int> q;
   while (qs.pop_on_if_any(q)) {
-    known_off |= eliminate_line(p, {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
+    known_off |= eliminate_line(p, q);
     if (!consistent()) {
       return;
     }
@@ -629,8 +629,7 @@ _DI_ void ThreeBoardC4Near<N, W>::eliminate_all_lines(BitBoard<W> seed) {
     BitBoard<W> qs = known_on & ~seed;
     cuda::std::pair<int, int> q;
     while (qs.pop_on_if_any(q)) {
-      known_off |= eliminate_line({static_cast<unsigned>(p.first), static_cast<unsigned>(p.second)},
-                                  {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
+      known_off |= eliminate_line(p, q);
       if (!consistent()) {
         return;
       }
@@ -644,7 +643,7 @@ _DI_ void ThreeBoardC4Near<N, W>::eliminate_all_lines_slow(cuda::std::pair<unsig
   BitBoard<W> qs = known_on;
   cuda::std::pair<int, int> q;
   while (qs.pop_on_if_any(q)) {
-    known_off |= eliminate_line_slow(p, {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
+    known_off |= eliminate_line_slow(p, q);
     if (!consistent()) {
       return;
     }
@@ -659,8 +658,7 @@ _DI_ void ThreeBoardC4Near<N, W>::eliminate_all_lines_slow(BitBoard<W> seed) {
     BitBoard<W> qs = known_on & ~seed;
     cuda::std::pair<int, int> q;
     while (qs.pop_on_if_any(q)) {
-      known_off |= eliminate_line_slow({static_cast<unsigned>(p.first), static_cast<unsigned>(p.second)},
-                                       {static_cast<unsigned>(q.first), static_cast<unsigned>(q.second)});
+      known_off |= eliminate_line_slow(p, q);
       if (!consistent()) {
         return;
       }

@@ -104,7 +104,7 @@ struct C4Traits {
 
   _DI_ static Cell pick_preferred_branch_cell(const BitBoard<W> &mask) {
     auto cell = mask.template first_origin_on<N>();
-    return {static_cast<unsigned>(cell.first), static_cast<unsigned>(cell.second)};
+    return cell;
   }
 
   _DI_ static unsigned pick_row_on_priority(const Board &board) {
