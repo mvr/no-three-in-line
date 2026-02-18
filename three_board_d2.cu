@@ -50,6 +50,9 @@ struct ThreeBoardD2 {
   _DI_ BitBoard<W> vulnerable() const;
   _DI_ cuda::std::pair<BitBoard<W>, BitBoard<W>> semi_quasi_vulnerable() const;
   _DI_ BitBoard<W> preferred_branch_cells() const;
+  template <typename CounterT>
+  static _DI_ CounterT column_counts(BitBoard<W> board, bool high_half = false);
+  static _DI_ board_row_t<32> column_on_any(BitBoard<W> board, bool high_half = false);
   _DI_ void apply_bounds();
 
   static _DI_ int mirror_y(int y);
@@ -209,6 +212,33 @@ _DI_ bool ThreeBoardD2<N, W>::complete() const {
 }
 
 template <unsigned N, unsigned W>
+template <typename CounterT>
+_DI_ CounterT ThreeBoardD2<N, W>::column_counts(BitBoard<W> board, bool high_half) {
+  if constexpr (W == 32) {
+    (void)high_half;
+    return CounterT::vertical(board.state);
+  } else {
+    if (high_half) {
+      return CounterT::vertical(board.state.y) + CounterT::vertical(board.state.w);
+    }
+    return CounterT::vertical(board.state.x) + CounterT::vertical(board.state.z);
+  }
+}
+
+template <unsigned N, unsigned W>
+_DI_ board_row_t<32> ThreeBoardD2<N, W>::column_on_any(BitBoard<W> board, bool high_half) {
+  if constexpr (W == 32) {
+    (void)high_half;
+    return __reduce_or_sync(0xffffffff, board.state);
+  } else {
+    if (high_half) {
+      return __reduce_or_sync(0xffffffff, board.state.y | board.state.w);
+    }
+    return __reduce_or_sync(0xffffffff, board.state.x | board.state.z);
+  }
+}
+
+template <unsigned N, unsigned W>
 _DI_ LexStatus ThreeBoardD2<N, W>::canonical_with_forced(ForcedCell &forced) const {
   BitBoard<W> flip_h_on = known_on.flip_horizontal().rotate_torus(FULL_N, 0);
   BitBoard<W> flip_h_off = known_off.flip_horizontal().rotate_torus(FULL_N, 0);
@@ -283,7 +313,8 @@ _DI_ ThreeBoardD2<N, W> ThreeBoardD2<N, W>::force_orthogonal() const {
     }
 
     // Column target: exactly 1 ON per stored column.
-    const BinaryCountSaturating<32> col_on = BinaryCountSaturating<32>::vertical(known_on.state);
+    const BinaryCountSaturating<32> col_on =
+        column_counts<BinaryCountSaturating<32>>(known_on);
     const board_row_t<32> col_on_eq_1 = col_on.bit0 & ~col_on.bit1;
     const board_row_t<32> col_on_gt_1 = col_on.bit1;
 
@@ -292,7 +323,8 @@ _DI_ ThreeBoardD2<N, W> ThreeBoardD2<N, W>::force_orthogonal() const {
     result.known_off.state |= col_on_gt_1;
 
     const BitBoard<32> not_known_off = (~known_off) & bounds();
-    const BinaryCountSaturating<32> col_not_off = BinaryCountSaturating<32>::vertical(not_known_off.state);
+    const BinaryCountSaturating<32> col_not_off =
+        column_counts<BinaryCountSaturating<32>>(not_known_off);
     const board_row_t<32> col_not_off_eq_1 = col_not_off.bit0 & ~col_not_off.bit1;
     const board_row_t<32> col_not_off_lt_1 = ~col_not_off.bit0 & ~col_not_off.bit1;
 
@@ -367,8 +399,8 @@ _DI_ ThreeBoardD2<N, W> ThreeBoardD2<N, W>::force_orthogonal() const {
 
     // Column target: exactly 1 ON per stored column.
     {
-      const BinaryCountSaturating<32> col_on_low = BinaryCountSaturating<32>::vertical(known_on.state.x) +
-                                                   BinaryCountSaturating<32>::vertical(known_on.state.z);
+      const BinaryCountSaturating<32> col_on_low =
+          column_counts<BinaryCountSaturating<32>>(known_on, false);
       const board_row_t<32> col_on_low_eq_1 = col_on_low.bit0 & ~col_on_low.bit1;
       const board_row_t<32> col_on_low_gt_1 = col_on_low.bit1;
 
@@ -379,8 +411,8 @@ _DI_ ThreeBoardD2<N, W> ThreeBoardD2<N, W>::force_orthogonal() const {
       result.known_off.state.x |= col_on_low_gt_1;
       result.known_off.state.z |= col_on_low_gt_1;
 
-      const BinaryCountSaturating<32> col_on_high = BinaryCountSaturating<32>::vertical(known_on.state.y) +
-                                                    BinaryCountSaturating<32>::vertical(known_on.state.w);
+      const BinaryCountSaturating<32> col_on_high =
+          column_counts<BinaryCountSaturating<32>>(known_on, true);
       const board_row_t<32> col_on_high_eq_1 = col_on_high.bit0 & ~col_on_high.bit1;
       const board_row_t<32> col_on_high_gt_1 = col_on_high.bit1;
 
@@ -395,8 +427,8 @@ _DI_ ThreeBoardD2<N, W> ThreeBoardD2<N, W>::force_orthogonal() const {
     {
       const BitBoard<64> not_known_off = (~known_off) & bounds();
 
-      const BinaryCountSaturating<32> col_not_off_low = BinaryCountSaturating<32>::vertical(not_known_off.state.x) +
-                                                        BinaryCountSaturating<32>::vertical(not_known_off.state.z);
+      const BinaryCountSaturating<32> col_not_off_low =
+          column_counts<BinaryCountSaturating<32>>(not_known_off, false);
       const board_row_t<32> col_not_off_low_eq_1 = col_not_off_low.bit0 & ~col_not_off_low.bit1;
       const board_row_t<32> col_not_off_low_lt_1 = ~col_not_off_low.bit0 & ~col_not_off_low.bit1;
 
@@ -407,8 +439,8 @@ _DI_ ThreeBoardD2<N, W> ThreeBoardD2<N, W>::force_orthogonal() const {
       result.known_off.state.x |= col_not_off_low_lt_1;
       result.known_off.state.z |= col_not_off_low_lt_1;
 
-      const BinaryCountSaturating<32> col_not_off_high = BinaryCountSaturating<32>::vertical(not_known_off.state.y) +
-                                                         BinaryCountSaturating<32>::vertical(not_known_off.state.w);
+      const BinaryCountSaturating<32> col_not_off_high =
+          column_counts<BinaryCountSaturating<32>>(not_known_off, true);
       const board_row_t<32> col_not_off_high_eq_1 = col_not_off_high.bit0 & ~col_not_off_high.bit1;
       const board_row_t<32> col_not_off_high_lt_1 = ~col_not_off_high.bit0 & ~col_not_off_high.bit1;
 
@@ -439,8 +471,9 @@ _DI_ BitBoard<W> ThreeBoardD2<N, W>::vulnerable() const {
 
     // Full-board column unknown=4 corresponds to stored unknown=2.
     // One additional OFF then forces the remaining cell ON in that column.
-    const BinaryCountSaturating<32> col_unknown = BinaryCountSaturating<32>::vertical(unknown.state);
-    const uint32_t col_on_any = __reduce_or_sync(0xffffffff, known_on.state);
+    const BinaryCountSaturating<32> col_unknown =
+        column_counts<BinaryCountSaturating<32>>(unknown);
+    const uint32_t col_on_any = column_on_any(known_on);
     const board_row_t<32> vulnerable_cols = ~col_on_any & col_unknown.template eq_target<2>();
     result.state |= unknown.state & vulnerable_cols;
   } else {
@@ -458,31 +491,19 @@ _DI_ BitBoard<W> ThreeBoardD2<N, W>::vulnerable() const {
       result.state.w = ~0u;
     }
 
-    const BinaryCountSaturating<32> col_unknown_even_low = BinaryCountSaturating<32>::vertical(unknown.state.x);
-    const BinaryCountSaturating<32> col_unknown_odd_low = BinaryCountSaturating<32>::vertical(unknown.state.z);
-
-    const uint32_t col_on_even_low_any = __reduce_or_sync(0xffffffff, known_on.state.x);
-    const uint32_t col_on_odd_low_any = __reduce_or_sync(0xffffffff, known_on.state.z);
-    const board_row_t<32> col_on_low_eq_0 = ~col_on_even_low_any & ~col_on_odd_low_any;
-    const board_row_t<32> col_unknown_low_eq_2 =
-        (col_unknown_even_low.template eq_target<2>() & col_unknown_odd_low.template eq_target<0>()) |
-        (col_unknown_even_low.template eq_target<1>() & col_unknown_odd_low.template eq_target<1>()) |
-        (col_unknown_even_low.template eq_target<0>() & col_unknown_odd_low.template eq_target<2>());
+    const BinaryCountSaturating<32> col_unknown_low =
+        column_counts<BinaryCountSaturating<32>>(unknown, false);
+    const board_row_t<32> col_on_low_eq_0 = ~column_on_any(known_on, false);
+    const board_row_t<32> col_unknown_low_eq_2 = col_unknown_low.template eq_target<2>();
     const board_row_t<32> vulnerable_cols_low = col_on_low_eq_0 & col_unknown_low_eq_2;
 
     result.state.x |= unknown.state.x & vulnerable_cols_low;
     result.state.z |= unknown.state.z & vulnerable_cols_low;
 
-    const BinaryCountSaturating<32> col_unknown_even_high = BinaryCountSaturating<32>::vertical(unknown.state.y);
-    const BinaryCountSaturating<32> col_unknown_odd_high = BinaryCountSaturating<32>::vertical(unknown.state.w);
-
-    const uint32_t col_on_even_high_any = __reduce_or_sync(0xffffffff, known_on.state.y);
-    const uint32_t col_on_odd_high_any = __reduce_or_sync(0xffffffff, known_on.state.w);
-    const board_row_t<32> col_on_high_eq_0 = ~col_on_even_high_any & ~col_on_odd_high_any;
-    const board_row_t<32> col_unknown_high_eq_2 =
-        (col_unknown_even_high.template eq_target<2>() & col_unknown_odd_high.template eq_target<0>()) |
-        (col_unknown_even_high.template eq_target<1>() & col_unknown_odd_high.template eq_target<1>()) |
-        (col_unknown_even_high.template eq_target<0>() & col_unknown_odd_high.template eq_target<2>());
+    const BinaryCountSaturating<32> col_unknown_high =
+        column_counts<BinaryCountSaturating<32>>(unknown, true);
+    const board_row_t<32> col_on_high_eq_0 = ~column_on_any(known_on, true);
+    const board_row_t<32> col_unknown_high_eq_2 = col_unknown_high.template eq_target<2>();
     const board_row_t<32> vulnerable_cols_high = col_on_high_eq_0 & col_unknown_high_eq_2;
 
     result.state.y |= unknown.state.y & vulnerable_cols_high;

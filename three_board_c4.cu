@@ -53,6 +53,8 @@ struct ThreeBoardC4 {
   _DI_ BitBoard<W> preferred_branch_cells() const;
   template <unsigned UnknownTarget>
   _DI_ BitBoard<W> semivulnerable_like() const;
+  template <typename CounterT>
+  static _DI_ CounterT orthogonal_counts(BitBoard<W> board);
   _DI_ void apply_bounds();
 
   // Helpers for reasoning about orbits.
@@ -254,6 +256,23 @@ _DI_ bool ThreeBoardC4<N, W>::complete() const {
 }
 
 template <unsigned N, unsigned W>
+template <typename CounterT>
+_DI_ CounterT ThreeBoardC4<N, W>::orthogonal_counts(BitBoard<W> board) {
+  if constexpr (W == 32) {
+    return CounterT::horizontal(board.state) + CounterT::vertical(board.state);
+  } else {
+    constexpr board_row_t<64> row_mask =
+        (N == 64) ? ~board_row_t<64>(0) : ((board_row_t<64>(1) << N) - 1u);
+    const board_row_t<64> even =
+        ((static_cast<board_row_t<64>>(board.state.y) << 32) | board.state.x) & row_mask;
+    const board_row_t<64> odd =
+        ((static_cast<board_row_t<64>>(board.state.w) << 32) | board.state.z) & row_mask;
+    return CounterT::horizontal_interleave(even, odd) + CounterT::vertical(even) +
+           CounterT::vertical(odd);
+  }
+}
+
+template <unsigned N, unsigned W>
 _DI_ LexStatus ThreeBoardC4<N, W>::canonical_with_forced(ForcedCell &forced) const {
   BitBoard<W> diag_on = known_on.flip_diagonal();
   BitBoard<W> diag_off = known_off.flip_diagonal();
@@ -301,9 +320,8 @@ _DI_ ThreeBoardC4<N, W> ThreeBoardC4<N, W>::force_orthogonal() const {
   if constexpr (W == 32) {
     const board_row_t<32> lane_bit = 1u << (threadIdx.x & 31);
 
-    const BinaryCountSaturating<32> row_on_counter = BinaryCountSaturating<32>::horizontal(known_on.state);
-    const BinaryCountSaturating<32> col_on_counter = BinaryCountSaturating<32>::vertical(known_on.state);
-    const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
+    const BinaryCountSaturating<32> total_on_counter =
+        orthogonal_counts<BinaryCountSaturating<32>>(known_on);
 
     const board_row_t<32> total_on_eq_2 = total_on_counter.bit1 & ~total_on_counter.bit0;
     const board_row_t<32> total_on_gt_2 = total_on_counter.bit1 & total_on_counter.bit0;
@@ -322,11 +340,8 @@ _DI_ ThreeBoardC4<N, W> ThreeBoardC4<N, W>::force_orthogonal() const {
 
     BitBoard<W> not_known_off = (~known_off) & bounds();
 
-    const BinaryCountSaturating<32> row_not_off_counter =
-        BinaryCountSaturating<32>::horizontal(not_known_off.state);
-    const BinaryCountSaturating<32> col_not_off_counter =
-        BinaryCountSaturating<32>::vertical(not_known_off.state);
-    const BinaryCountSaturating<32> total_not_off_counter = row_not_off_counter + col_not_off_counter;
+    const BinaryCountSaturating<32> total_not_off_counter =
+        orthogonal_counts<BinaryCountSaturating<32>>(not_known_off);
 
     const board_row_t<32> total_not_off_eq_2 = total_not_off_counter.bit1 & ~total_not_off_counter.bit0;
     const board_row_t<32> total_not_off_lt_2 = ~total_not_off_counter.bit1;
@@ -350,16 +365,8 @@ _DI_ ThreeBoardC4<N, W> ThreeBoardC4<N, W>::force_orthogonal() const {
     const board_row_t<64> lane_even_bit = board_row_t<64>(1) << (2 * lane);
     const board_row_t<64> lane_odd_bit = lane_even_bit << 1;
 
-    const board_row_t<64> known_on_even =
-        ((static_cast<board_row_t<64>>(known_on.state.y) << 32) | known_on.state.x) & row_mask;
-    const board_row_t<64> known_on_odd =
-        ((static_cast<board_row_t<64>>(known_on.state.w) << 32) | known_on.state.z) & row_mask;
-
-    const BinaryCountSaturating<64> row_on_counter =
-        BinaryCountSaturating<64>::horizontal_interleave(known_on_even, known_on_odd);
-    const BinaryCountSaturating<64> col_on_counter =
-        BinaryCountSaturating<64>::vertical(known_on_even) + BinaryCountSaturating<64>::vertical(known_on_odd);
-    const BinaryCountSaturating<64> total_on_counter = row_on_counter + col_on_counter;
+    const BinaryCountSaturating<64> total_on_counter =
+        orthogonal_counts<BinaryCountSaturating<64>>(known_on);
 
     const board_row_t<64> total_on_eq_2 = total_on_counter.template eq_target<2>();
     const board_row_t<64> total_on_gt_2 = total_on_counter.bit1 & total_on_counter.bit0;
@@ -405,16 +412,8 @@ _DI_ ThreeBoardC4<N, W> ThreeBoardC4<N, W>::force_orthogonal() const {
     }
 
     const BitBoard<W> not_known_off = (~known_off) & bounds();
-    const board_row_t<64> not_known_off_even =
-        ((static_cast<board_row_t<64>>(not_known_off.state.y) << 32) | not_known_off.state.x);
-    const board_row_t<64> not_known_off_odd =
-        ((static_cast<board_row_t<64>>(not_known_off.state.w) << 32) | not_known_off.state.z);
-
-    const BinaryCountSaturating<64> row_not_off_counter =
-        BinaryCountSaturating<64>::horizontal_interleave(not_known_off_even, not_known_off_odd);
-    const BinaryCountSaturating<64> col_not_off_counter = BinaryCountSaturating<64>::vertical(not_known_off_even) +
-                                                          BinaryCountSaturating<64>::vertical(not_known_off_odd);
-    const BinaryCountSaturating<64> total_not_off_counter = row_not_off_counter + col_not_off_counter;
+    const BinaryCountSaturating<64> total_not_off_counter =
+        orthogonal_counts<BinaryCountSaturating<64>>(not_known_off);
 
     const board_row_t<64> total_not_off_eq_2 = total_not_off_counter.template eq_target<2>();
     const board_row_t<64> total_not_off_lt_2 = ~total_not_off_counter.bit1;
@@ -470,13 +469,10 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::vulnerable() const {
   BitBoard<W> unknown = (~known_on & ~known_off) & bounds();
 
   if constexpr (W == 32) {
-    const BinaryCountSaturating<32> row_on_counter = BinaryCountSaturating<32>::horizontal(known_on.state);
-    const BinaryCountSaturating<32> col_on_counter = BinaryCountSaturating<32>::vertical(known_on.state);
-    const BinaryCountSaturating<32> total_on_counter = row_on_counter + col_on_counter;
-
-    const BinaryCountSaturating3<32> row_unknown_counter = BinaryCountSaturating3<32>::horizontal(unknown.state);
-    const BinaryCountSaturating3<32> col_unknown_counter = BinaryCountSaturating3<32>::vertical(unknown.state);
-    const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
+    const BinaryCountSaturating<32> total_on_counter =
+        orthogonal_counts<BinaryCountSaturating<32>>(known_on);
+    const BinaryCountSaturating3<32> total_unknown_counter =
+        orthogonal_counts<BinaryCountSaturating3<32>>(unknown);
 
     const board_row_t<32> total_on_eq_0 = total_on_counter.template eq_target<0>();
     const board_row_t<32> total_on_eq_1 = total_on_counter.template eq_target<1>();
@@ -499,26 +495,10 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::vulnerable() const {
     const board_row_t<64> lane_even_bit = board_row_t<64>(1) << (2 * lane);
     const board_row_t<64> lane_odd_bit = lane_even_bit << 1;
 
-    const board_row_t<64> known_on_even =
-        ((static_cast<board_row_t<64>>(known_on.state.y) << 32) | known_on.state.x) & row_mask;
-    const board_row_t<64> known_on_odd =
-        ((static_cast<board_row_t<64>>(known_on.state.w) << 32) | known_on.state.z) & row_mask;
-    const board_row_t<64> unknown_even =
-        ((static_cast<board_row_t<64>>(unknown.state.y) << 32) | unknown.state.x) & row_mask;
-    const board_row_t<64> unknown_odd =
-        ((static_cast<board_row_t<64>>(unknown.state.w) << 32) | unknown.state.z) & row_mask;
-
-    const BinaryCountSaturating<64> row_on_counter =
-        BinaryCountSaturating<64>::horizontal_interleave(known_on_even, known_on_odd);
-    const BinaryCountSaturating<64> col_on_counter =
-        BinaryCountSaturating<64>::vertical(known_on_even) + BinaryCountSaturating<64>::vertical(known_on_odd);
-    const BinaryCountSaturating<64> total_on_counter = row_on_counter + col_on_counter;
-
-    const BinaryCountSaturating3<64> row_unknown_counter =
-        BinaryCountSaturating3<64>::horizontal_interleave(unknown_even, unknown_odd);
-    const BinaryCountSaturating3<64> col_unknown_counter =
-        BinaryCountSaturating3<64>::vertical(unknown_even) + BinaryCountSaturating3<64>::vertical(unknown_odd);
-    const BinaryCountSaturating3<64> total_unknown_counter = row_unknown_counter + col_unknown_counter;
+    const BinaryCountSaturating<64> total_on_counter =
+        orthogonal_counts<BinaryCountSaturating<64>>(known_on);
+    const BinaryCountSaturating3<64> total_unknown_counter =
+        orthogonal_counts<BinaryCountSaturating3<64>>(unknown);
 
     const board_row_t<64> total_on_eq_0 = total_on_counter.template eq_target<0>();
     const board_row_t<64> total_on_eq_1 = total_on_counter.template eq_target<1>();
@@ -556,13 +536,11 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::semivulnerable_like() const {
 
   BitBoard<W> unknown = (~known_on & ~known_off) & bounds();
   if constexpr (W == 32) {
-    const BinaryCountSaturating3<32> row_unknown_counter = BinaryCountSaturating3<32>::horizontal(unknown.state);
-    const BinaryCountSaturating3<32> col_unknown_counter = BinaryCountSaturating3<32>::vertical(unknown.state);
-    const BinaryCountSaturating3<32> total_unknown_counter = row_unknown_counter + col_unknown_counter;
-
-    const uint32_t col_on_any = __reduce_or_sync(0xffffffff, known_on.state);
-    const board_row_t<32> row_on_eq_0 = (known_on.state == 0) ? ~0u : 0u;
-    const board_row_t<32> total_on_eq_0 = row_on_eq_0 & ~col_on_any;
+    const BinaryCountSaturating<32> total_on_counter =
+        orthogonal_counts<BinaryCountSaturating<32>>(known_on);
+    const BinaryCountSaturating3<32> total_unknown_counter =
+        orthogonal_counts<BinaryCountSaturating3<32>>(unknown);
+    const board_row_t<32> total_on_eq_0 = total_on_counter.template eq_target<0>();
     const board_row_t<32> total_unknown_eq = total_unknown_counter.template eq_target<UnknownTarget>();
 
     const board_row_t<32> semivuln_rows = total_on_eq_0 & total_unknown_eq;
@@ -580,30 +558,11 @@ _DI_ BitBoard<W> ThreeBoardC4<N, W>::semivulnerable_like() const {
     const board_row_t<64> lane_even_bit = board_row_t<64>(1) << (2 * lane);
     const board_row_t<64> lane_odd_bit = lane_even_bit << 1;
 
-    const board_row_t<64> known_on_even =
-        ((static_cast<board_row_t<64>>(known_on.state.y) << 32) | known_on.state.x) & row_mask;
-    const board_row_t<64> known_on_odd =
-        ((static_cast<board_row_t<64>>(known_on.state.w) << 32) | known_on.state.z) & row_mask;
-    const board_row_t<64> unknown_even =
-        ((static_cast<board_row_t<64>>(unknown.state.y) << 32) | unknown.state.x) & row_mask;
-    const board_row_t<64> unknown_odd =
-        ((static_cast<board_row_t<64>>(unknown.state.w) << 32) | unknown.state.z) & row_mask;
-
-    const BinaryCountSaturating3<64> row_unknown_counter =
-        BinaryCountSaturating3<64>::horizontal_interleave(unknown_even, unknown_odd);
-    const BinaryCountSaturating3<64> col_unknown_counter =
-        BinaryCountSaturating3<64>::vertical(unknown_even) + BinaryCountSaturating3<64>::vertical(unknown_odd);
-    const BinaryCountSaturating3<64> total_unknown_counter = row_unknown_counter + col_unknown_counter;
-
-    const board_row_t<64> row_on_eq_0 =
-        ((((known_on.state.x | known_on.state.y) == 0) ? lane_even_bit : board_row_t<64>(0)) |
-         (((known_on.state.z | known_on.state.w) == 0) ? lane_odd_bit : board_row_t<64>(0))) &
-        row_mask;
-    const uint32_t col_on_any_lo = __reduce_or_sync(0xffffffff, known_on.state.x | known_on.state.z);
-    const uint32_t col_on_any_hi = __reduce_or_sync(0xffffffff, known_on.state.y | known_on.state.w);
-    const board_row_t<64> col_on_eq_0 =
-        (((static_cast<board_row_t<64>>(~col_on_any_hi) << 32) | ~col_on_any_lo) & row_mask);
-    const board_row_t<64> total_on_eq_0 = row_on_eq_0 & col_on_eq_0;
+    const BinaryCountSaturating<64> total_on_counter =
+        orthogonal_counts<BinaryCountSaturating<64>>(known_on);
+    const BinaryCountSaturating3<64> total_unknown_counter =
+        orthogonal_counts<BinaryCountSaturating3<64>>(unknown);
+    const board_row_t<64> total_on_eq_0 = total_on_counter.template eq_target<0>();
     const board_row_t<64> total_unknown_eq = total_unknown_counter.template eq_target<UnknownTarget>();
     const board_row_t<64> mask = total_on_eq_0 & total_unknown_eq;
 
