@@ -376,8 +376,13 @@ _DI_ board_row_t<W> BitBoard<W>::first_row() const {
 
 template<unsigned W>
 _DI_ board_row_t<W> BitBoard<W>::occupied_columns() const {
-  // TODO W=64
-  return __reduce_or_sync(0xffffffff, state);
+  if constexpr (W == 32) {
+    return __reduce_or_sync(0xffffffff, state);
+  } else {
+    const uint32_t lo = __reduce_or_sync(0xffffffff, state.x | state.z);
+    const uint32_t hi = __reduce_or_sync(0xffffffff, state.y | state.w);
+    return (static_cast<uint64_t>(hi) << 32) | lo;
+  }
 }
 
 template<unsigned W>
