@@ -48,6 +48,10 @@ previously known:
   * 49 × 49: 196*
   * 51 × 51: 264*
   * 53 × 53: 377*
+* 4-fold diagonal symmetry:
+  * 46 × 46: 0
+  * 47 × 47: 1
+  * 48 × 48: 0
 
 *Thanks to [Thomas
 Prellberg](https://webspace.maths.qmul.ac.uk/t.prellberg/) and [Queen
