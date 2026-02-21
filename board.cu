@@ -236,15 +236,15 @@ _DI_ board_row_t<W> BitBoard<W>::row(int y) const {
 template<unsigned W>
 _DI_ board_row_t<W> BitBoard<W>::column(int x) const {
   if constexpr (W == 32) {
-    return __ballot_sync(0xffffffff, state & (1<<x));
+    return __ballot_sync(0xffffffff, state & (1u << x));
   } else {
     uint32_t xs, zs;
     if(x < 32) {
-      xs = __ballot_sync(0xffffffff, state.x & (1<<x));
-      zs = __ballot_sync(0xffffffff, state.z & (1<<x));
+      xs = __ballot_sync(0xffffffff, state.x & (1u << x));
+      zs = __ballot_sync(0xffffffff, state.z & (1u << x));
     } else {
-      xs = __ballot_sync(0xffffffff, state.y & (1<<(x-32)));
-      zs = __ballot_sync(0xffffffff, state.w & (1<<(x-32)));
+      xs = __ballot_sync(0xffffffff, state.y & (1u << (x - 32)));
+      zs = __ballot_sync(0xffffffff, state.w & (1u << (x - 32)));
     }
 
     return interleave32(xs, zs);

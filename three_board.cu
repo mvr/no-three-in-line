@@ -792,7 +792,7 @@ ThreeBoard<N, W>::eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p,
     unsigned row = threadIdx.x & 31;
     if (row % delta.second == p_rem) {
       int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
-      if(col >= 0 && col < 32) result.state |= 1 << col;
+      if(col >= 0 && col < 32) result.state |= 1u << col;
     }
     if (p.second == row || q.second == row) {
       result.state = 0;
@@ -802,8 +802,8 @@ ThreeBoard<N, W>::eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p,
       unsigned row = 2 * (threadIdx.x & 31);
       if (row % delta.second == p_rem) {
         int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
-        if(col >= 0 && col < 32) result.state.x |= 1 << col;
-        else if(col >= 32 && col < 64) result.state.y |= 1 << (col-32);
+        if(col >= 0 && col < 32) result.state.x |= 1u << col;
+        else if(col >= 32 && col < 64) result.state.y |= 1u << (col - 32);
       }
       if (p.second == row || q.second == row) {
         result.state.x = 0;
@@ -815,8 +815,8 @@ ThreeBoard<N, W>::eliminate_line_inner(cuda::std::pair<unsigned, unsigned> p,
       unsigned row = 2 * (threadIdx.x & 31) + 1;
       if (row % delta.second == p_rem) {
         int col = p.first + ((int)(row / delta.second) - p_quo) * delta.first;
-        if(col >= 0 && col < 32) result.state.z |= 1 << col;
-        else if(col >= 32 && col < 64) result.state.w |= 1 << (col-32);
+        if(col >= 0 && col < 32) result.state.z |= 1u << col;
+        else if(col >= 32 && col < 64) result.state.w |= 1u << (col - 32);
       }
       if (p.second == row || q.second == row) {
         result.state.z = 0;
