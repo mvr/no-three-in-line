@@ -8,17 +8,20 @@
 #include <numeric>
 #include <utility>
 
-__constant__ unsigned char div_gcd_table[64][64];
+__constant__ unsigned char div_gcd_table[128][128];
 
 __device__ uint64_t relevant_endpoint_table[64];
 __device__ uint64_t relevant_endpoint_table_64[256];
 
 inline void init_lookup_tables_host() {
-  unsigned char host_div_gcd_table[64][64];
+  unsigned char host_div_gcd_table[128][128] = {};
 
-  for (unsigned i = 1; i < 64; i++) {
-    for (unsigned j = 1; j < 64; j++) {
-      host_div_gcd_table[i][j] = i / std::gcd(i, j);
+  for (unsigned i = 0; i < 128; i++) {
+    for (unsigned j = 0; j < 128; j++) {
+      if(i == 0 || j == 0)
+        host_div_gcd_table[i][j] = 0;
+      else
+        host_div_gcd_table[i][j] = static_cast<unsigned char>(i / std::gcd(i, j));
     }
   }
 
