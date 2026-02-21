@@ -545,19 +545,7 @@ _DI_ BitBoard<W> ThreeBoardD4Odd<N, W>::semivulnerable_like() const {
 
 template <unsigned N, unsigned W>
 _DI_ BitBoard<W> ThreeBoardD4Odd<N, W>::preferred_branch_cells() const {
-  BitBoard<W> cells = vulnerable();
-  if (!cells.empty()) {
-    return cells;
-  }
-  cells = semivulnerable_like<4>();
-  if (!cells.empty()) {
-    return cells;
-  }
-  cells = semivulnerable_like<5>();
-  if (!cells.empty()) {
-    return cells;
-  }
-  return BitBoard<W>{};
+  return vulnerable();
 }
 
 template <unsigned N, unsigned W>
