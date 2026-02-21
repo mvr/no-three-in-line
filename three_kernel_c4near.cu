@@ -260,7 +260,7 @@ struct C4NearTraits {
   }
 
   static void emit_solution(const Problem &problem) {
-    board_array_t<Board::FULL_W> expanded{};
+    std::array<std::array<uint8_t, Board::FULL_N>, Board::FULL_N> expanded{};
     constexpr board_row_t<W> row_mask =
         (N == W) ? ~board_row_t<W>(0) : ((board_row_t<W>(1) << N) - 1u);
     auto set_full = [&](int fx, int fy) {
@@ -274,11 +274,7 @@ struct C4NearTraits {
       }
       const unsigned ix = static_cast<unsigned>(ix_i);
       const unsigned iy = static_cast<unsigned>(iy_i);
-      if constexpr (Board::FULL_W == 32) {
-        expanded[iy] |= (uint32_t(1) << ix);
-      } else {
-        expanded[iy] |= (uint64_t(1) << ix);
-      }
+      expanded[iy][ix] = 1u;
     };
 
     for (unsigned ly = 0; ly < (N - 1); ++ly) {
@@ -306,7 +302,7 @@ struct C4NearTraits {
       }
     }
 
-    std::cout << to_rle<Board::FULL_N, Board::FULL_W>(expanded) << std::endl;
+    std::cout << to_rle_dense<Board::FULL_N>(expanded) << std::endl;
   }
 
   static void emit_frontier(const Problem &problem) { emit_frontier_rle<N, W>(problem); }

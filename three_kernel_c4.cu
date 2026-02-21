@@ -228,8 +228,7 @@ struct C4Traits {
   }
 
   static void emit_solution(const Problem &problem) {
-    board_array_t<Board::FULL_W> expanded{};
-
+    std::array<std::array<uint8_t, Board::FULL_N>, Board::FULL_N> expanded{};
     for (unsigned y = 0; y < N; ++y) {
       board_row_t<W> row = problem.known_on[y];
       while (row != 0) {
@@ -240,11 +239,7 @@ struct C4Traits {
         for (int r = 0; r < 4; ++r) {
           int fx = px + static_cast<int>(N);
           int fy = py + static_cast<int>(N);
-          if constexpr (Board::FULL_W == 32) {
-            expanded[fy] |= (1U << fx);
-          } else {
-            expanded[fy] |= (1ULL << fx);
-          }
+          expanded[static_cast<unsigned>(fy)][static_cast<unsigned>(fx)] = 1u;
 
           int nx = -py - 1;
           int ny = px;
@@ -256,7 +251,7 @@ struct C4Traits {
       }
     }
 
-    std::cout << to_rle<Board::FULL_N, Board::FULL_W>(expanded) << std::endl;
+    std::cout << to_rle_dense<Board::FULL_N>(expanded) << std::endl;
   }
 
   static void emit_frontier(const Problem &problem) {

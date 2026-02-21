@@ -141,6 +141,13 @@ std::string to_rle(const board_array_t<W> &board) {
   });
 }
 
+template <unsigned N>
+std::string to_rle_dense(const std::array<std::array<uint8_t, N>, N> &board) {
+  return generic_to_rle<N>([&](int x, int y) -> char {
+    return board[y][x] ? 'o' : 'b';
+  });
+}
+
 
 template<unsigned W>
 std::pair<board_array_t<W>, board_array_t<W>> parse_rle_history(const std::string &rle) {
