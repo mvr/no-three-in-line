@@ -88,6 +88,17 @@ As well as some solutions with record-breaking sizes*:
   3bo$40bobo$16bo26bo$11bo16bo$5bo26bo$28bo22bo$22bo33bo$11bo13bo$29bo
   17bo$37bobo$22bo6bo$14bo16bo!
   ```
+* 66 x 66:
+  ```
+  31bo4bo$36bo14bo$2bo60bo$20bo2bo$15bo24bo$15bo19bo$13bo25bo$8bo28bo$
+  45bo12bo$24bo27bo$21bo21bo$12bo25bo$21bo32bo$9bo49bo$bo47bo$60b2o$14bo
+  17bo$25bo17bo$24bo17bo$32bo5bo$8bo53bo$53bobo$10bo6bo$18bo43bo$47bo8bo
+  $4bo43bo$6bo23bo$11bo7bo$7bo23bo$2o$5bo33bo$37bo27bo$46bo2bo$16bo2bo$o
+  27bo$26bo33bo$64b2o$34bo23bo$46bo7bo$35bo23bo$17bo43bo$9bo8bo$3bo43bo$
+  48bo6bo$10bobo$3bo53bo$27bo5bo$23bo17bo$22bo17bo$33bo17bo$4b2o$16bo47b
+  o$6bo49bo$11bo32bo$27bo25bo$22bo21bo$13bo27bo$7bo12bo$28bo28bo$26bo25b
+  o$30bo19bo$25bo24bo$42bo2bo$2bo60bo$14bo14bo$29bo4bo!
+  ```
 
 *Thanks to [Thomas Prellberg] and Queen Mary's [Apocrita] HPC
 facility!
