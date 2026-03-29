@@ -21,6 +21,7 @@ is falling away from exponential growth, at least up to 19 × 19!
 For more details, see the following blog posts:
 * [No-Three-In-Line](https://mvr.github.io/posts/no-three-in-line.html)
 * [No-Three-In-Line, Quicker](https://mvr.github.io/posts/no-three-in-line-quicker.html)
+* [No-Three-In-Line, Dumber](https://mvr.github.io/posts/no-three-in-line-dumber.html)
 
 ## Results
 
