@@ -13,6 +13,27 @@
 #define THREE_ENABLE_STATS 0
 #endif
 
+inline bool check_cuda_call(cudaError_t status,
+                            const char *expr,
+                            const char *file,
+                            int line) {
+  if (status == cudaSuccess) {
+    return true;
+  }
+  std::cerr << "[error] cuda call failed"
+            << " expr=" << expr
+            << " file=" << file
+            << " line=" << line
+            << " code=" << static_cast<int>(status)
+            << " name=" << cudaGetErrorName(status)
+            << " detail=" << cudaGetErrorString(status)
+            << std::endl;
+  return false;
+}
+
+#define THREE_CUDA_CHECK(expr) check_cuda_call((expr), #expr, __FILE__, __LINE__)
+#define THREE_CUDA_CHECK_LAUNCH(name) check_cuda_call(cudaGetLastError(), (name), __FILE__, __LINE__)
+
 struct SearchStats {
   unsigned long long counters[static_cast<unsigned>(StatId::Count)];
 };
@@ -27,28 +48,33 @@ __device__ __forceinline__ void stats_record(StatId id, unsigned long long value
   }
 }
 
-inline void reset_search_stats() {
+inline bool reset_search_stats() {
   SearchStats zero{};
-  cudaMemcpyToSymbol(g_search_stats, &zero, sizeof(SearchStats));
+  if (!THREE_CUDA_CHECK(cudaMemcpyToSymbol(g_search_stats, &zero, sizeof(SearchStats)))) {
+    return false;
+  }
   g_last_stats_print = std::chrono::steady_clock::now();
+  return true;
 }
 
-inline void maybe_print_stats(unsigned stack_size,
+inline bool maybe_print_stats(unsigned stack_size,
                               unsigned batch_size,
                               float batch_scale,
                               float push_ratio,
                               unsigned interval_seconds,
                               bool force = false) {
   if (!force && interval_seconds == 0) {
-    return;
+    return true;
   }
   auto now = std::chrono::steady_clock::now();
   if (!force && now - g_last_stats_print < std::chrono::seconds(interval_seconds)) {
-    return;
+    return true;
   }
 
   SearchStats snapshot;
-  cudaMemcpyFromSymbol(&snapshot, g_search_stats, sizeof(SearchStats));
+  if (!THREE_CUDA_CHECK(cudaMemcpyFromSymbol(&snapshot, g_search_stats, sizeof(SearchStats)))) {
+    return false;
+  }
   std::cerr << "[stats] nodes=" << snapshot.counters[static_cast<unsigned>(StatId::NodesVisited)]
             << " canonical_skips=" << snapshot.counters[static_cast<unsigned>(StatId::CanonicalSkips)]
             << " sym_force=" << snapshot.counters[static_cast<unsigned>(StatId::SymmetryForced)]
@@ -64,16 +90,17 @@ inline void maybe_print_stats(unsigned stack_size,
             << std::endl;
 
   g_last_stats_print = now;
+  return true;
 }
 
-inline void stats_final(unsigned stack_size, float batch_scale, unsigned interval_seconds) {
-  maybe_print_stats(stack_size, 1, batch_scale, 0.0f, interval_seconds, true);
+inline bool stats_final(unsigned stack_size, float batch_scale, unsigned interval_seconds) {
+  return maybe_print_stats(stack_size, 1, batch_scale, 0.0f, interval_seconds, true);
 }
 #else
 __device__ __forceinline__ void stats_record(StatId, unsigned long long = 1ULL) {}
-inline void reset_search_stats() {}
-inline void maybe_print_stats(unsigned, unsigned, float, float, unsigned, bool = false) {}
-inline void stats_final(unsigned, float, unsigned) {}
+inline bool reset_search_stats() { return true; }
+inline bool maybe_print_stats(unsigned, unsigned, float, float, unsigned, bool = false) { return true; }
+inline bool stats_final(unsigned, float, unsigned) { return true; }
 #endif
 
 template <unsigned W>
@@ -317,37 +344,81 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
   Stack *d_stack = nullptr;
   Output *d_output = nullptr;
   Problem *d_output_entries = nullptr;
+  Problem *d_compact_tmp = nullptr;
+  size_t compact_capacity = 0;
+
+  auto cleanup = [&](bool report_failures) -> bool {
+    bool ok = true;
+    auto free_ptr = [&](auto *&ptr, const char *expr) {
+      if (!ptr) {
+        return;
+      }
+      const cudaError_t status = cudaFree(ptr);
+      if (status != cudaSuccess) {
+        ok = false;
+        if (report_failures) {
+          check_cuda_call(status, expr, __FILE__, __LINE__);
+        }
+      }
+      ptr = nullptr;
+    };
+
+    free_ptr(d_compact_tmp, "cudaFree(d_compact_tmp)");
+    free_ptr(d_output_entries, "cudaFree(d_output_entries)");
+    free_ptr(d_output, "cudaFree(d_output)");
+    free_ptr(d_stack, "cudaFree(d_stack)");
+    return ok;
+  };
+
+#define THREE_SEARCH_FAIL()     \
+  do {                          \
+    cleanup(false);             \
+    return 1;                   \
+  } while (false)
+#define THREE_CUDA_OR_RETURN(expr)        \
+  do {                                    \
+    if (!THREE_CUDA_CHECK(expr)) {        \
+      THREE_SEARCH_FAIL();                \
+    }                                     \
+  } while (false)
+#define THREE_CUDA_LAUNCH_OR_RETURN(name) \
+  do {                                    \
+    if (!THREE_CUDA_CHECK_LAUNCH(name)) { \
+      THREE_SEARCH_FAIL();                \
+    }                                     \
+  } while (false)
 
   unsigned output_capacity = FrontierMode ? (BATCH_MAX_SIZE * 4) : SOLUTION_BUFFER_CAPACITY;
 
-  cudaMalloc((void**) &d_stack, sizeof(Stack));
-  cudaMalloc((void**) &d_output, sizeof(Output));
-  cudaMalloc((void**) &d_output_entries, output_capacity * sizeof(Problem));
+  THREE_CUDA_OR_RETURN(cudaMalloc((void**) &d_stack, sizeof(Stack)));
+  THREE_CUDA_OR_RETURN(cudaMalloc((void**) &d_output, sizeof(Output)));
+  THREE_CUDA_OR_RETURN(cudaMalloc((void**) &d_output_entries, output_capacity * sizeof(Problem)));
 
-  cudaMemset(d_stack, 0, sizeof(Stack));
-  cudaMemset(d_output, 0, sizeof(Output));
+  THREE_CUDA_OR_RETURN(cudaMemset(d_stack, 0, sizeof(Stack)));
+  THREE_CUDA_OR_RETURN(cudaMemset(d_output, 0, sizeof(Output)));
 
   Output host_output{};
   host_output.entries = d_output_entries;
   host_output.capacity = output_capacity;
-  cudaMemcpy(d_output, &host_output, sizeof(Output), cudaMemcpyHostToDevice);
+  THREE_CUDA_OR_RETURN(cudaMemcpy(d_output, &host_output, sizeof(Output), cudaMemcpyHostToDevice));
 
   if (options.mode == SearchMode::Seed) {
     Problem seed{};
     seed.known_on = options.seed_on;
     seed.known_off = options.seed_off;
     initialize_stack_seed_kernel<Traits><<<1, 32>>>(d_stack, seed);
+    THREE_CUDA_LAUNCH_OR_RETURN("initialize_stack_seed_kernel<Traits>");
   } else {
     initialize_stack_kernel<Traits><<<1, 32>>>(d_stack);
+    THREE_CUDA_LAUNCH_OR_RETURN("initialize_stack_kernel<Traits>");
   }
 
-  reset_search_stats();
-
-  Problem *d_compact_tmp = nullptr;
-  size_t compact_capacity = 0;
+  if (!reset_search_stats()) {
+    THREE_SEARCH_FAIL();
+  }
 
   unsigned start_size;
-  cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+  THREE_CUDA_OR_RETURN(cudaMemcpy(&start_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost));
   float feedback_scale = 1 / static_cast<float>(BATCH_MAX_SIZE / BATCH_WARMUP_SIZE);
   const auto start_time = std::chrono::steady_clock::now();
 
@@ -373,9 +444,9 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
     unsigned overflow_count = 0;
     bool had_retry = false;
     while (true) {
-      cudaMemset(&d_stack->overflow, 0, sizeof(unsigned));
-      cudaMemset(&d_output->size, 0, sizeof(unsigned));
-      cudaMemset(&d_output->overflow, 0, sizeof(unsigned));
+      THREE_CUDA_OR_RETURN(cudaMemset(&d_stack->overflow, 0, sizeof(unsigned)));
+      THREE_CUDA_OR_RETURN(cudaMemset(&d_output->size, 0, sizeof(unsigned)));
+      THREE_CUDA_OR_RETURN(cudaMemset(&d_output->overflow, 0, sizeof(unsigned)));
 
       unsigned blocks = (batch_size + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
       work_kernel<Traits, FrontierMode><<<blocks, WARPS_PER_BLOCK * 32>>>(
@@ -384,8 +455,10 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
           batch_start,
           batch_size,
           options.frontier_min_on);
+      THREE_CUDA_LAUNCH_OR_RETURN("work_kernel<Traits, FrontierMode>");
 
-      cudaMemcpy(&overflow_count, &d_stack->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
+      THREE_CUDA_OR_RETURN(cudaMemcpy(&overflow_count, &d_stack->overflow,
+                                      sizeof(unsigned), cudaMemcpyDeviceToHost));
       if (overflow_count == 0) {
         if (had_retry) {
           std::cerr << "[warn] stack overflow, recovered"
@@ -397,7 +470,8 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
       }
 
       had_retry = true;
-      cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
+      THREE_CUDA_OR_RETURN(cudaMemcpy(&d_stack->size, &start_size,
+                                      sizeof(unsigned), cudaMemcpyHostToDevice));
 
       if (batch_size <= 1) {
         break;
@@ -426,30 +500,40 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
     }
 
     unsigned new_size;
-    cudaMemcpy(&new_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
+    THREE_CUDA_OR_RETURN(cudaMemcpy(&new_size, &d_stack->size, sizeof(unsigned), cudaMemcpyDeviceToHost));
+    if (new_size < start_size || new_size < batch_size) {
+      std::cerr << "[error] invalid stack size after kernel"
+                << " start_size=" << start_size
+                << " batch_size=" << batch_size
+                << " new_size=" << new_size
+                << std::endl;
+      THREE_SEARCH_FAIL();
+    }
     unsigned pushes = new_size - start_size;
 
     if (pushes > 0) {
       if (pushes > batch_size) {
         if (pushes > compact_capacity) {
           if (d_compact_tmp) {
-            cudaFree(d_compact_tmp);
+            THREE_CUDA_OR_RETURN(cudaFree(d_compact_tmp));
+            d_compact_tmp = nullptr;
           }
-          cudaMalloc((void **)&d_compact_tmp, pushes * sizeof(Problem));
+          THREE_CUDA_OR_RETURN(cudaMalloc((void **)&d_compact_tmp, pushes * sizeof(Problem)));
           compact_capacity = pushes;
         }
-        cudaMemcpy(d_compact_tmp, &d_stack->problems[start_size],
-                   pushes * sizeof(Problem), cudaMemcpyDeviceToDevice);
-        cudaMemcpy(&d_stack->problems[batch_start], d_compact_tmp,
-                   pushes * sizeof(Problem), cudaMemcpyDeviceToDevice);
+        THREE_CUDA_OR_RETURN(cudaMemcpy(d_compact_tmp, &d_stack->problems[start_size],
+                                        pushes * sizeof(Problem), cudaMemcpyDeviceToDevice));
+        THREE_CUDA_OR_RETURN(cudaMemcpy(&d_stack->problems[batch_start], d_compact_tmp,
+                                        pushes * sizeof(Problem), cudaMemcpyDeviceToDevice));
       } else {
-        cudaMemcpy(&d_stack->problems[batch_start], &d_stack->problems[start_size],
-                   pushes * sizeof(Problem), cudaMemcpyDeviceToDevice);
+        THREE_CUDA_OR_RETURN(cudaMemcpy(&d_stack->problems[batch_start], &d_stack->problems[start_size],
+                                        pushes * sizeof(Problem), cudaMemcpyDeviceToDevice));
       }
     }
 
     start_size = new_size - batch_size;
-    cudaMemcpy(&d_stack->size, &start_size, sizeof(unsigned), cudaMemcpyHostToDevice);
+    THREE_CUDA_OR_RETURN(cudaMemcpy(&d_stack->size, &start_size,
+                                    sizeof(unsigned), cudaMemcpyHostToDevice));
 
     float push_ratio = static_cast<float>(pushes) / static_cast<float>(batch_size);
     float adjust = 1.0f + (BATCH_FEEDBACK_GAIN_RATIO * (BATCH_FEEDBACK_TARGET_RATIO - push_ratio));
@@ -461,8 +545,10 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
 
     unsigned output_count = 0;
     unsigned output_overflow = 0;
-    cudaMemcpy(&output_count, &d_output->size, sizeof(unsigned), cudaMemcpyDeviceToHost);
-    cudaMemcpy(&output_overflow, &d_output->overflow, sizeof(unsigned), cudaMemcpyDeviceToHost);
+    THREE_CUDA_OR_RETURN(cudaMemcpy(&output_count, &d_output->size,
+                                    sizeof(unsigned), cudaMemcpyDeviceToHost));
+    THREE_CUDA_OR_RETURN(cudaMemcpy(&output_overflow, &d_output->overflow,
+                                    sizeof(unsigned), cudaMemcpyDeviceToHost));
 
 
     if (output_overflow > 0) {
@@ -473,7 +559,8 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
 
     if (output_count > 0) {
       std::vector<Problem> outputs(output_count);
-      cudaMemcpy(outputs.data(), d_output_entries, output_count * sizeof(Problem), cudaMemcpyDeviceToHost);
+      THREE_CUDA_OR_RETURN(cudaMemcpy(outputs.data(), d_output_entries,
+                                      output_count * sizeof(Problem), cudaMemcpyDeviceToHost));
       if constexpr (FrontierMode) {
         for (const auto &entry : outputs) {
           Traits::emit_frontier(entry);
@@ -490,22 +577,27 @@ int solve_with_device_stack_impl(const SearchOptions<Traits::kW> &options) {
       }
     }
 
-    maybe_print_stats(start_size,
-                      batch_size,
-                      feedback_scale,
-                      push_ratio,
-                      options.stats_interval_seconds);
+    if (!maybe_print_stats(start_size,
+                           batch_size,
+                           feedback_scale,
+                           push_ratio,
+                           options.stats_interval_seconds)) {
+      THREE_SEARCH_FAIL();
+    }
   }
 
-  cudaDeviceSynchronize();
-  stats_final(start_size, feedback_scale, options.stats_interval_seconds);
-
-  if (d_compact_tmp) {
-    cudaFree(d_compact_tmp);
+  THREE_CUDA_OR_RETURN(cudaDeviceSynchronize());
+  if (!stats_final(start_size, feedback_scale, options.stats_interval_seconds)) {
+    THREE_SEARCH_FAIL();
   }
-  cudaFree(d_output_entries);
-  cudaFree(d_output);
-  cudaFree(d_stack);
-
+  if (!cleanup(true)) {
+    return 1;
+  }
   return 0;
 }
+
+#undef THREE_SEARCH_FAIL
+#undef THREE_CUDA_OR_RETURN
+#undef THREE_CUDA_LAUNCH_OR_RETURN
+#undef THREE_CUDA_CHECK
+#undef THREE_CUDA_CHECK_LAUNCH
