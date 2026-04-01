@@ -42,6 +42,7 @@ previously known:
   * 48 × 48: 2124*
   * 50 × 50: 3381*
   * 52 × 52: 5062*
+  * 54 × 54: 7696*
 * "Near" 4-fold rotational symmetry (except the main diagonals):
   * 43 × 43: 63
   * 45 × 45: 106
