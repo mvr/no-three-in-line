@@ -31,6 +31,12 @@ can be pasted into [Golly](https://golly.sourceforge.io/), for
 example. So far a few new values have been calculated over what was
 previously known:
 
+*Thanks to [Thomas Prellberg] and Queen Mary's [Apocrita] HPC
+facility!
+
+[Thomas Prellberg]: https://webspace.maths.qmul.ac.uk/t.prellberg/
+[Apocrita]: https://docs.hpc.qmul.ac.uk/
+
 * Any symmetry:
   * 19 × 19: 32577
 * 2-fold orthogonal symmetry:
@@ -43,6 +49,7 @@ previously known:
   * 50 × 50: 3381*
   * 52 × 52: 5062*
   * 54 × 54: 7696*
+  * 56 × 56: 10441*
 * "Near" 4-fold rotational symmetry (except the main diagonals):
   * 43 × 43: 63
   * 45 × 45: 106
@@ -50,10 +57,15 @@ previously known:
   * 49 × 49: 196*
   * 51 × 51: 264*
   * 53 × 53: 377*
+  * 55 × 55: 573*
 * 4-fold diagonal symmetry:
   * 46 × 46: 0
   * 47 × 47: 1
   * 48 × 48: 0
+  * 49 × 49: 0*
+  * 50 × 50: 0*
+  * 51 × 51: 0*
+  * 52 × 52: 0*
 
 As well as some solutions with record-breaking sizes*:
 
@@ -113,11 +125,6 @@ As well as some solutions with record-breaking sizes*:
   o$23bo3bo$19bo29bo$34bo7bo$29bobo$21bo10bo$29bo11bo$53bobo!
   ```
 
-*Thanks to [Thomas Prellberg] and Queen Mary's [Apocrita] HPC
-facility!
-
-[Thomas Prellberg]: https://webspace.maths.qmul.ac.uk/t.prellberg/
-[Apocrita]: https://docs.hpc.qmul.ac.uk/
 
 ## Compiling
 
