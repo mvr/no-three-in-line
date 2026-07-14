@@ -39,9 +39,11 @@ facility!
 
 * Any symmetry:
   * 19 × 19: 32577
+  * 20 × 20: 118057*
 * 2-fold orthogonal symmetry:
   * 32 × 32: 0
   * 34 × 34: 0*
+  * 36 × 36: 0*
 * 4-fold rotational symmetry:
   * 44 × 44: 1016
   * 46 × 46: 1366
@@ -58,6 +60,7 @@ facility!
   * 51 × 51: 264*
   * 53 × 53: 377*
   * 55 × 55: 573*
+  * 57 × 57: 833*
 * 4-fold diagonal symmetry:
   * 46 × 46: 0
   * 47 × 47: 1
@@ -66,6 +69,10 @@ facility!
   * 50 × 50: 0*
   * 51 × 51: 0*
   * 52 × 52: 0*
+  * 53 × 53: 0*
+  * 54 × 54: 0*
+  * 55 × 55: 0*
+  * 56 × 56: 0*
 
 As well as some solutions with record-breaking sizes*:
 
